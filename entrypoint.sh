@@ -9,7 +9,7 @@ DJANGO_SUPERUSER_USERNAME=${DJANGO_SUPERUSER_USERNAME:-admin}
 DJANGO_SUPERUSER_PASSWORD=${DJANGO_SUPERUSER_PASSWORD:-defaultpass}
 DJANGO_SUPERUSER_EMAIL=${DJANGO_SUPERUSER_EMAIL:-admin@example.com}
 
-# Проверяем, существует ли пользователь через manage.py (правильный способ)
+# Проверяем, существует ли пользователь через manage.py
 echo "Checking if superuser $DJANGO_SUPERUSER_USERNAME exists..."
 if ! python manage.py shell -c "from django.contrib.auth import get_user_model; print('EXISTS:', get_user_model().objects.filter(username='$DJANGO_SUPERUSER_USERNAME').exists())" 2>/dev/null | grep -q "EXISTS: True"; then
   echo "Creating superuser $DJANGO_SUPERUSER_USERNAME..."
@@ -30,4 +30,4 @@ else
 fi
 
 # Запуск приложения
-exec granian --interface wsgi DiplomNetologyGjango.wsgi:application --host 0.0.0.0 --port 8000
+exec granian --interface asgi DiplomNetologyGjango.asgi:application --host 0.0.0.0 --port 8000
