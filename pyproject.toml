@@ -4,5 +4,18 @@ version = "0.1.0"
 description = "Add your description here"
 requires-python = ">=3.12"
 dependencies = [
-    "django>=5.2.7",
+    "asyncpg>=0.30.0",
+    "channels>=4.3.1",
+    "django>=4.2,<5.0",
+    "granian>=2.5.5",
+    "psycopg[binary]>=3.2.11",
+    "sqlalchemy>=2.0.44",
 ]
+
+[tool.uv.workspace]
+members = ["venv"]
+
+#[tool.uv]
+#dev-dependencies = [
+#    "ruff>=0.6.2",
+#]
