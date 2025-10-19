@@ -2,7 +2,22 @@
 set -e
 
 # Применяем миграции
-python manage.py migrate
+echo "Applying migrations..."
+python manage.py migrate --noinput
+
+# Собираем статические файлы
+echo "Collecting static files..."
+python manage.py collectstatic --noinput --clear
+
+# Проверка статических файлов
+echo "Checking static files..."
+if [ -d "staticfiles/admin" ]; then
+    echo "✅ Admin static files found"
+    echo "Admin static files:"
+    ls -la staticfiles/admin/css/ | head -5
+else
+    echo "❌ Admin static files not found"
+fi
 
 # Создаём суперпользователя, если его нет
 DJANGO_SUPERUSER_USERNAME=${DJANGO_SUPERUSER_USERNAME:-admin}
