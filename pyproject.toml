@@ -2,22 +2,87 @@
 name = "diplomnetologygjango"
 version = "0.1.0"
 description = "Add your description here"
+readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "asyncpg>=0.30.0",
-    "channels>=4.3.1",
     "django>=4.2,<5.0",
-    "dotenv>=0.9.9",
-    "granian>=2.5.5",
+    "djangorestframework>=3.16.1",
+    "channels>=4.3.1",
+    "asyncpg>=0.30.0",
     "psycopg[binary]>=3.2.11",
-    "sqlalchemy>=2.0.44",
     "whitenoise>=6.11.0",
+    "granian>=2.5.5",
+    "django-rest-passwordreset>=1.5.0",
+    "python-dotenv>=1.0.0",
 ]
 
-[tool.uv.workspace]
-members = ["venv"]
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.4.2",
+    "ruff>=0.6.2",
+    "pytest-django",
+    "django-debug-toolbar",
+]
+[tool.ruff]
+target-version = "py312"
+line-length = 88
 
-#[tool.uv]
-#dev-dependencies = [
-#    "ruff>=0.6.2",
-#]
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+    "DJ",  # django-specific rules
+    "N",   # pep8-naming
+    "Q",   # flake8-quotes
+    "S",   # flake8-bandit (security)
+]
+ignore = [
+    "E501",  # line too long
+    "B008",  # do not perform function calls in argument defaults
+    "DJ012", # settings should not be in random modules
+    "DJ008", # assets should be in static directory
+    "S101",  # use of assert detected
+    "N803",  # argument name should be lowercase
+    "N806",  # variable in function should be lowercase
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+"manage.py" = ["S101"]  # allow assert in manage.py
+"tests/**/*.py" = ["S101"]  # allow assert in tests
+"**/migrations/*.py" = ["N8", "F401"]  # ignore naming and unused imports in migrations
+"**/settings/*.py" = ["DJ001"]  # allow non-uppercase settings
+"**/models.py" = ["DJ001"]  # allow models to have non-uppercase constants
+
+[tool.ruff.lint.isort]
+known-first-party = ["diplomnetologygjango"]
+known-third-party = [
+    "django",
+    "rest_framework",
+    "channels",
+    "asyncpg",
+    "psycopg",
+    "whitenoise",
+    "granian",
+    "django_rest_passwordreset",
+    "dotenv",
+]
+# Убрана неподдерживаемая опция sections
+required-imports = ["from __future__ import annotations"]
+
+[tool.ruff.lint.flake8-quotes]
+inline-quotes = "double"
+multiline-quotes = "double"
+docstring-quotes = "double"
+avoid-escape = true
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.format]
+quote-style = "double"

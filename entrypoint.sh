@@ -3,7 +3,9 @@ set -e
 
 # Применяем миграции
 echo "Applying migrations..."
+python manage.py makemigrations
 python manage.py migrate --noinput
+
 
 # Собираем статические файлы
 echo "Collecting static files..."
@@ -20,28 +22,41 @@ else
 fi
 
 # Создаём суперпользователя, если его нет
-DJANGO_SUPERUSER_USERNAME=${DJANGO_SUPERUSER_USERNAME:-admin}
 DJANGO_SUPERUSER_PASSWORD=${DJANGO_SUPERUSER_PASSWORD:-defaultpass}
 DJANGO_SUPERUSER_EMAIL=${DJANGO_SUPERUSER_EMAIL:-admin@example.com}
 
-# Проверяем, существует ли пользователь через manage.py
-echo "Checking if superuser $DJANGO_SUPERUSER_USERNAME exists..."
-if ! python manage.py shell -c "from django.contrib.auth import get_user_model; print('EXISTS:', get_user_model().objects.filter(username='$DJANGO_SUPERUSER_USERNAME').exists())" 2>/dev/null | grep -q "EXISTS: True"; then
-  echo "Creating superuser $DJANGO_SUPERUSER_USERNAME..."
-  python manage.py createsuperuser --noinput \
-    --username "$DJANGO_SUPERUSER_USERNAME" \
-    --email "$DJANGO_SUPERUSER_EMAIL"
+echo "Checking if superuser $DJANGO_SUPERUSER_EMAIL exists..."
+if ! python manage.py shell -c "from backend.models import User; print('EXISTS:', User.objects.filter(email='$DJANGO_SUPERUSER_EMAIL').exists())" 2>/dev/null | grep -q "EXISTS: True"; then
+  echo "Creating superuser $DJANGO_SUPERUSER_EMAIL..."
 
-  # Установка пароля через Django shell
+  # Создаем суперпользователя через Django shell с правильными параметрами
   python manage.py shell -c "
-from django.contrib.auth import get_user_model
-user = get_user_model().objects.get(username='$DJANGO_SUPERUSER_USERNAME')
-user.set_password('$DJANGO_SUPERUSER_PASSWORD')
-user.save()
-print('Password set for', user.username)
+from backend.models import User
+try:
+    user = User.objects.create_superuser(
+        email='$DJANGO_SUPERUSER_EMAIL',
+        password='$DJANGO_SUPERUSER_PASSWORD',
+        is_active=True
+    )
+    print('✅ Superuser created successfully:', user.email)
+except Exception as e:
+    print('❌ Error creating superuser:', str(e))
 "
 else
-  echo "Superuser $DJANGO_SUPERUSER_USERNAME already exists."
+  echo "Superuser $DJANGO_SUPERUSER_EMAIL already exists."
+
+  # Обновляем пароль на случай, если он изменился
+  python manage.py shell -c "
+from backend.models import User
+try:
+    user = User.objects.get(email='$DJANGO_SUPERUSER_EMAIL')
+    user.set_password('$DJANGO_SUPERUSER_PASSWORD')
+    user.is_active = True
+    user.save()
+    print('✅ Password updated for:', user.email)
+except Exception as e:
+    print('❌ Error updating user:', str(e))
+"
 fi
 
 # Запуск приложения
