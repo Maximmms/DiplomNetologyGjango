@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
 from backend.models import (
@@ -11,9 +12,9 @@ from backend.models import (
     ProductInfo,
     ProductParameter,
     Shop,
-    User,
 )
 
+User = get_user_model()
 
 def validate_phone_number(value: str) -> str:
     digits = "".join(filter(str.isdigit, value))
@@ -67,15 +68,51 @@ class ContactSerializer(serializers.ModelSerializer):
         }
 
 
+
 class UserSerializer(serializers.ModelSerializer):
     contacts = ContactSerializer(many=True, read_only=True)
 
     class Meta:
         model = User
         fields = [
-            "id", "email", "first_name", "last_name", "company", "position", "contacts",
+            "id", "email", "first_name", "last_name", "company", "position", "contacts", "password", "username",
         ]
-        read_only_fields = ["id",]
+        read_only_fields = [
+            "id",
+        ]
+
+    def create(self, validated_data):
+        # Извлекаем обязательные поля
+        email=validated_data.pop("email")
+        password=validated_data.pop("password")
+        username=validated_data.pop("username")
+
+        # Остальные поля будут переданы как extra_fields
+        extra_fields = {k: v for k, v in validated_data.items() if hasattr(User(), k)}
+
+        # Создаём пользователя с помощью create_user
+        user = User.objects.create_user(
+            email=email, password=password, username=username, **extra_fields
+        )
+        return user
+
+    def update(self, instance, validated_data):
+        # Обновляем email (если он был передан)
+        if "email" in validated_data:
+            email = validated_data.pop("email")
+            instance.email = email
+
+        # Обновляем пароль (если он был передан)
+        if "password" in validated_data:
+            instance.set_password(validated_data.pop("password"))
+
+        # Обновляем остальные поля
+        for attr, value in validated_data.items():
+            if hasattr(instance, attr):
+                setattr(instance, attr, value)
+
+        instance.save()
+        return instance
 
 class CategorySerializer(serializers.ModelSerializer):
     class Meta:

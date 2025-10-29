@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 
+import jwt
+from django.conf import settings
 from django.contrib.auth.base_user import BaseUserManager
-from django.contrib.auth.models import AbstractUser
+from django.contrib.auth.models import AbstractUser, PermissionsMixin
 from django.contrib.auth.validators import UnicodeUsernameValidator
 from django.core.validators import MinValueValidator
 from django.db import models
-from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 USER_TYPE_CHOICES = (
@@ -44,42 +44,56 @@ class UserManager(BaseUserManager):
     """
     use_in_migrations = True
 
-    def _create_user(self, email, password, **extra_fields):
+    def _create_user(self, username, email, password, **extra_fields):
         """
         Create and save a user with the given username, email, and password.
         """
+        if not username:
+            raise ValueError("Указанное имя пользователя должно быть установлено")
+
         if not email:
-            raise ValueError("The given email must be set")
+            raise ValueError("Данный адрес электронной почты должен быть установлен")
         email = self.normalize_email(email)
-        user = self.model(email=email, **extra_fields)
+        user = self.model(username = username, email=email, **extra_fields)
         user.set_password(password)
         user.save(using=self._db)
         return user
 
-    def create_user(self, email, password=None, **extra_fields):
+    def create_user(self, username, email, password=None, **extra_fields):
+        """
+        Создает и возвращает `User` с адресом электронной почты,
+        именем пользователя и паролем.
+        """
         extra_fields.setdefault("is_staff", False)
         extra_fields.setdefault("is_superuser", False)
-        return self._create_user(email, password, **extra_fields)
+        return self._create_user(username, email, password, **extra_fields)
 
-    def create_superuser(self, email, password, **extra_fields):
+    def create_superuser(self, username, email, password, **extra_fields):
+        """
+        Создает и возвращает пользователя с правами
+        суперпользователя (администратора).
+        """
         extra_fields.setdefault("is_staff", True)
         extra_fields.setdefault("is_superuser", True)
 
-        if extra_fields.get("is_staff") is not True:
-            raise ValueError("Superuser must have is_staff=True.")
-        if extra_fields.get("is_superuser") is not True:
-            raise ValueError("Superuser must have is_superuser=True.")
+        if not (
+            extra_fields.get("is_staff", False)
+            and extra_fields.get("is_superuser", False)
+        ):
+            raise ValueError("Суперпользователь должен иметь is_staff=True и is_superuser=True.")
 
-        return self._create_user(email, password, **extra_fields)
+        return self._create_user(username, email, password, **extra_fields)
 
 
-class User(AbstractUser):
+class User(AbstractUser, PermissionsMixin):
     """
     Стандартная модель пользователей
     """
+
     REQUIRED_FIELDS = []
     objects = UserManager()
     USERNAME_FIELD = "email"
+    REQUIRED_FIELDS = ("username",)
     email = models.EmailField(
         verbose_name="Электронная почта",
         unique=True
@@ -124,11 +138,35 @@ class User(AbstractUser):
         verbose_name="Тип пользователя",
         choices=USER_TYPE_CHOICES,
         max_length=5,
-        default="buyer"
+        default="buyer",
     )
 
     def __str__(self):
         return f"{self.first_name} {self.last_name}"
+
+    @property
+    def token(self):
+        """
+        Позволяет нам получить токен пользователя, вызвав `user.token` вместо
+        `user.generate_jwt_token().
+        """
+        return self._generate_jwt_token()
+
+
+    def _generate_jwt_token(self):
+        """
+        Создает веб-токен JSON, в котором хранится идентификатор
+        этого пользователя и срок его действия
+        составляет 60 дней в будущем.
+        """
+        dt = datetime.now() + timedelta(days=60)
+
+        token = jwt.encode({
+            "id": self.pk,
+            "exp": int(dt.strftime("%s"))
+        }, settings.SECRET_KEY, algorithm="HS256")
+
+        return token.decode("utf-8")
 
     class Meta:
         db_table = "backend_user"
@@ -208,6 +246,18 @@ class Product(models.Model):
 
 class ProductInfo(models.Model):
     objects = models.manager.Manager()
+    product = models.ForeignKey(
+        Product,
+        related_name="product_infos",
+        on_delete=models.CASCADE,
+        verbose_name="Продукт"
+    )
+    shop = models.ForeignKey(
+        Shop,
+        on_delete=models.CASCADE,
+        related_name="products",
+        verbose_name="Поставщик"
+    )
     model = models.CharField(
         max_length=50,
         verbose_name="Модель товара",
@@ -217,17 +267,6 @@ class ProductInfo(models.Model):
         max_length=50,
         verbose_name="Внешний идентификатор",
         blank=True
-    )
-    product = models.ForeignKey(
-        Product,
-        on_delete=models.CASCADE,
-        verbose_name="Продукт"
-    )
-    shop = models.ForeignKey(
-        Shop,
-        on_delete=models.CASCADE,
-        related_name="products",
-        verbose_name="Поставщик"
     )
     quantity = models.DecimalField(
         max_digits=10,
@@ -416,7 +455,7 @@ class Contact(models.Model):
         max_length=20,
         null=True,
         blank=True,
-        verbose_name="Почтоывй индекс"
+        verbose_name="Почтовый индекс"
     )
     city = models.CharField(
         max_length=100,
@@ -434,7 +473,7 @@ class Contact(models.Model):
         max_length=20,
         null=True,
         blank=True,
-        verbose_name="Ноемр дома"
+        verbose_name="Номер дома"
     )
     appartment = models.CharField(
         max_length=20,
@@ -466,48 +505,4 @@ class Contact(models.Model):
             )
         ]
 
-
-class ConfirmationToken(models.Model):
-    user = models.ForeignKey(
-        User,
-        on_delete=models.CASCADE,
-        related_name="confirmation_tokens",
-        verbose_name="Пользователь",
-    )
-    created_at = models.DateTimeField(
-        auto_now_add=True,
-        verbose_name="Дата создания",
-        help_text="Дата создания токена",
-    )
-    expires_at = models.DateTimeField(
-        verbose_name="Дата истечения",
-        help_text="Дата истечения токена",
-        null=True,
-    )
-    key = models.CharField(
-        _("Key"),
-        max_length=64,
-        db_index=True,
-        unique=True
-    )
-
-    @staticmethod
-    def generate_key():
-        return str(uuid.uuid4()).replace("-", "")
-
-    def save(self, *args, **kwargs):
-        if not self.key:
-            self.key = self.generate_key()
-        if not self.expires_at:
-            self.expires_at = timezone.now() + timedelta(days=14)
-        return super().save(*args, **kwargs)
-
-    def is_expired(self):
-        return timezone.now() > self.expires_at
-
-    def __str__(self):
-        return f"Password reset token for user {self.user}"
-
-    class Meta:
-        verbose_name = "Токен подтверждения"
-        verbose_name_plural = "Токены подтверждения"
+ral = "Токены подтверждения"

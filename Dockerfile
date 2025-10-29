@@ -6,27 +6,27 @@ WORKDIR /app
 
 # Настройки uv
 ENV UV_COMPILE_BYTECODE=1 \
-    UV_LINK_MODE=copy
+    UV_LINK_MODE=copy \
+    PATH="/app/.venv/bin:$PATH" \
+    PYTHONPATH="/app"
+
+# Копируем зависимости для их установки
+COPY pyproject.toml uv.lock ./
 
 # Устанавливаем зависимости, используя кэш
 RUN --mount=type=cache,target=/root/.cache/uv \
-    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-    --mount=type=bind,source=uv.lock,target=uv.lock \
     uv sync --frozen --no-install-project --no-dev
 
-# Копируем остальной код
-ADD . /app
+# Копируем весь проект
+COPY . .
 
 # Устанавливаем проект
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
 
-# Добавляем виртуальное окружение в PATH
-ENV PATH="/app/.venv/bin:$PATH" \
-    PYTHONPATH="/app"
+# Подготавливаем entrypoint.sh
+RUN sed -i 's/\r$//' ./entrypoint.sh && \
+    chmod +x ./entrypoint.sh
 
-RUN sed -i 's/\r$//' /app/entrypoint.sh && \
-    chmod +x /app/entrypoint.sh
-
-
-ENTRYPOINT ["/app/entrypoint.sh"]
+# Точка входа
+ENTRYPOINT ["./entrypoint.sh"]

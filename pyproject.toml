@@ -14,6 +14,11 @@ dependencies = [
     "granian>=2.5.5",
     "django-rest-passwordreset>=1.5.0",
     "python-dotenv>=1.0.0",
+    "djangorestframework-simplejwt>=5.5.1",
+    "pyjwt>=2.10.1",
+    "celery>=5.5.3",
+    "redis>=7.0.1",
+    "django-celery-beat>=2.8.1",
 ]
 
 [project.optional-dependencies]
