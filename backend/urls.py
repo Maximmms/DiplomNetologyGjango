@@ -1,15 +1,23 @@
 from __future__ import annotations
 
-from django.urls import path
+from django.urls import include, path
+from rest_framework.routers import DefaultRouter
 
-from backend import views
-from backend.views import UserRegisterView
+from backend.views import (
+    UserLoginViewSet,
+    UserLogoutViewSet,
+    UserRegisterViewSet,
+)
+
+# Инициализируем роутер и регистрируем ViewSet'ы
+router = DefaultRouter()
+router.register(r"user/register", UserRegisterViewSet, basename="register")
+router.register(r"user/login", UserLoginViewSet, basename="login")
+router.register(r"user/logout", UserLogoutViewSet, basename="logout")
+
 
 app_name = "backend"
+
 urlpatterns = [
-    path("hello", views.hello_view, name="hello"),
-    path("user/register/", UserRegisterView.as_view(), name="register"),
-    path("partner/update/", views.PriceUpdateView.as_view(), name="price_update"),
-    path("user/login/", views.UserLoginView.as_view(), name="login"),
-    path("user/logout/", views.UserLogoutView.as_view(), name="logout"),
+    path("", include(router.urls)),
 ]

@@ -8,8 +8,9 @@ class BackendConfig(AppConfig):
     name = "backend"
 
     def ready(self):
-        from backend.tasks import create_periodic_task
         from django.conf import settings
+
+        from backend.tasks import create_periodic_task
 
         if settings.DEBUG:
             create_periodic_task()

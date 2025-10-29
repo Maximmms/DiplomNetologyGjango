@@ -48,6 +48,7 @@ INSTALLED_APPS = [
     "django_rest_passwordreset",
     "rest_framework_simplejwt",
     "rest_framework_simplejwt.token_blacklist",
+    'drf_spectacular',
     "django_celery_beat",
     "backend",
 ]
@@ -157,18 +158,14 @@ EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 REST_FRAMEWORK = {
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 40,
-
     "DEFAULT_RENDERER_CLASSES": (
         "rest_framework.renderers.JSONRenderer",
         "rest_framework.renderers.BrowsableAPIRenderer",
-
     ),
-
     "DEFAULT_AUTHENTICATION_CLASSES": (
-
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ),
-
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
 }
 
 SIMPLE_JWT = {

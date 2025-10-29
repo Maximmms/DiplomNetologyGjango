@@ -19,6 +19,7 @@ dependencies = [
     "celery>=5.5.3",
     "redis>=7.0.1",
     "django-celery-beat>=2.8.1",
+    "drf-spectacular>=0.28.0",
 ]
 
 [project.optional-dependencies]

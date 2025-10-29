@@ -1,26 +1,22 @@
 from __future__ import annotations
 
 from django.contrib.auth import get_user_model
-from rest_framework import status
-from rest_framework.decorators import api_view
-from rest_framework.permissions import IsAuthenticated
+from rest_framework import status, viewsets
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
-from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from backend.serializers import UserSerializer
 
 User = get_user_model()
 
+class UserRegisterViewSet(viewsets.ModelViewSet):
+    permission_classes = [AllowAny]
+    queryset = User.objects.all()
+    serializer_class = UserSerializer
 
-@api_view(["GET"])
-def hello_view(request):
-    return Response({"message": "Hello, World!"})
-
-
-class UserRegisterView(APIView):
-    def post(self, request):
-        serializer = UserSerializer(data=request.data)
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -44,8 +40,12 @@ class UserRegisterView(APIView):
         }, status=status.HTTP_201_CREATED)
 
 
-class UserLoginView(APIView):
-    def post(self, request):
+class UserLoginViewSet(viewsets.ModelViewSet):
+    permission_classes = [AllowAny]
+    queryset = User.objects.all()
+    serializer_class = UserSerializer
+
+    def create(self, request, *args, **kwargs):
         data = request.data
         email = data.get("email")
         password = data.get("password")
@@ -88,10 +88,12 @@ class UserLoginView(APIView):
         )
 
 
-class UserLogoutView(APIView):
+class UserLogoutViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
+    queryset = User.objects.all()
+    serializer_class = UserSerializer
 
-    def post(self, request):
+    def create(self, request, *args, **kwargs):
         refresh_token = request.data.get("refresh_token")
         if not refresh_token:
             return Response(
@@ -110,7 +112,3 @@ class UserLogoutView(APIView):
             )
 
         return Response({"success": "Выход успешен"}, status=status.HTTP_200_OK)
-
-class PriceUpdateView(APIView):
-    def post(self, request, *args, **kwargs):
-        pass

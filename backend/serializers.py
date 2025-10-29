@@ -60,7 +60,7 @@ class ContactSerializer(serializers.ModelSerializer):
     class Meta:
         model = Contact
         fields = [
-            "id","user", "city", "street", "building", "appartment", "phone_number"
+            "id","user", "city", "street", "building", "appartment",
         ]
         read_only_fields = ["id",]
         extra_kwargs = {
