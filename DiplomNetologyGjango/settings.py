@@ -48,7 +48,7 @@ INSTALLED_APPS = [
     "django_rest_passwordreset",
     "rest_framework_simplejwt",
     "rest_framework_simplejwt.token_blacklist",
-    'drf_spectacular',
+    "drf_spectacular",
     "django_celery_beat",
     "backend",
 ]
@@ -165,7 +165,7 @@ REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ),
-    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
 }
 
 SIMPLE_JWT = {
@@ -235,6 +235,18 @@ CELERY_BEAT_SCHEDULE = {
     },
 }
 
+SPECTACULAR_SETTINGS = {
+    "TITLE": "API",
+    "DESCRIPTION": "Документация API",
+    "VERSION": "1.0.0",
+    "SERVE_INCLUDE_SCHEMA": False,
+    "SWAGGER_UI_SETTINGS": {
+        "persistAuthorization": True,
+    },
+    "TAGS": [
+        {"name": "USER", "description": "Операции, связанные с пользователями: регистрация, вход, выход"},
+    ],
+}
 
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"

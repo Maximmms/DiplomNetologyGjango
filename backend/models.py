@@ -116,6 +116,12 @@ class User(AbstractUser, PermissionsMixin):
         max_length=40,
         blank=True
     )
+    phone_number = models.CharField(
+        max_length=20,
+        null=True,
+        blank=True,
+        verbose_name="Номер телефона"
+    )
     username_validator = UnicodeUsernameValidator()
     username = models.CharField(
         max_length=150,
@@ -175,6 +181,66 @@ class User(AbstractUser, PermissionsMixin):
         ordering = ("email",)
 
 
+class Contact(models.Model):
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="user_contacts",
+        verbose_name="Пользователь"
+    )
+    zipcode = models.CharField(
+        max_length=20,
+        null=True,
+        blank=True,
+        verbose_name="Почтовый индекс"
+    )
+    city = models.CharField(
+        max_length=100,
+        null=True,
+        blank=True,
+        verbose_name="Город"
+    )
+    street = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        verbose_name="Улица"
+    )
+    building = models.CharField(
+        max_length=20,
+        null=True,
+        blank=True,
+        verbose_name="Номер дома"
+    )
+    appartment = models.CharField(
+        max_length=20,
+        null=True,
+        blank=True,
+        verbose_name="Номер квартиры"
+    )
+
+
+    def __str__(self):
+        return f"{self.user} - {self.zipcode} {self.city} {self.street} {self.building} {self.appartment} "
+
+    def save(self, *args, **kwargs):
+        if Contact.objects.filter(user=self.user).count() >= 5:
+            raise ValueError(
+                "Пользователь может иметь не более 5 адресов"
+            )
+        else:
+            return super().save(*args, **kwargs)
+
+
+    class Meta:
+        verbose_name = "Контактная информация пользователя"
+        verbose_name_plural = "Контактные данные пользователей"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user"],
+                name="unique_user_address"
+            )
+        ]
 class Shop(models.Model):
     url = models.URLField(
         verbose_name="Сайт магазина",
@@ -305,13 +371,13 @@ class ProductInfo(models.Model):
         verbose_name = "Информация о товаре в магазине"
         verbose_name_plural = "Информация о товарах в магазинах"
         indexes = [
-            models.Index(fields=["product", "shop"])
+        models.Index(fields=["product", "shop"])
         ]
         constraints = [
-            models.UniqueConstraint(
-                fields=["product", "shop", "external_id"],
-                name="unique_product_info"
-            ),
+        models.UniqueConstraint(
+        fields=["product", "shop", "external_id"],
+        name="unique_product_info"
+        ),
         ]
 
 
@@ -349,15 +415,15 @@ class ProductParameter(models.Model):
         verbose_name = "Параметр товара"
         verbose_name_plural = "Список параметров товара"
         indexes = [
-            models.Index(
-                fields=["parameter", "value"]
-            )
+        models.Index(
+        fields=["parameter", "value"]
+        )
         ]
         constraints = [
-            models.UniqueConstraint(
-                fields=["product_info", "parameter"],
-                name="unique_product_parameter"
-            ),
+        models.UniqueConstraint(
+        fields=["product_info", "parameter"],
+        name="unique_product_parameter"
+        ),
         ]
 
 
@@ -385,9 +451,9 @@ class Order(models.Model):
         verbose_name = "Заказ"
         verbose_name_plural = "Заказы"
         indexes = [
-            models.Index(
-                fields=["user", "status"]
-            )
+        models.Index(
+        fields=["user", "status"]
+        )
         ]
         ordering = ("-dt",)
 
@@ -418,91 +484,8 @@ class OrderItem(models.Model):
         verbose_name_plural = "Пункты заказа"
         indexes = [models.Index(fields=["order", "product_info"])]
         constraints = [
-            models.UniqueConstraint(
-                fields=["order", "product_info"],
-                name="unique_order_item"
-            )
-        ]
-
-
-class Phone(models.Model):
-    user = models.OneToOneField(
-        User,
-        on_delete=models.CASCADE,
-        related_name="user_phone",
-        verbose_name="Пользователь"
-    )
-    phone_number = models.CharField(
-        max_length=20,
-        null=True,
-        blank=True,
-        verbose_name="Номер телефона"
+        models.UniqueConstraint(
+        fields=["order", "product_info"],
+        name="unique_order_item"
         )
-
-    class Meta:
-        verbose_name = "Телефон пользователя"
-        verbose_name_plural = "Телефоны пользователей"
-
-
-class Contact(models.Model):
-    user = models.ForeignKey(
-        User,
-        on_delete=models.CASCADE,
-        related_name="user_contacts",
-        verbose_name="Пользователь"
-    )
-    zipcode = models.CharField(
-        max_length=20,
-        null=True,
-        blank=True,
-        verbose_name="Почтовый индекс"
-    )
-    city = models.CharField(
-        max_length=100,
-        null=True,
-        blank=True,
-        verbose_name="Город"
-    )
-    street = models.CharField(
-        max_length=255,
-        null=True,
-        blank=True,
-        verbose_name="Улица"
-    )
-    building = models.CharField(
-        max_length=20,
-        null=True,
-        blank=True,
-        verbose_name="Номер дома"
-    )
-    appartment = models.CharField(
-        max_length=20,
-        null=True,
-        blank=True,
-        verbose_name="Номер квартиры"
-    )
-
-
-    def __str__(self):
-        return f"{self.user} - {self.zipcode} {self.city} {self.street} {self.building} {self.appartment}"
-
-    def save(self, *args, **kwargs):
-        if Contact.objects.filter(user=self.user).count() >= 5:
-            raise ValueError(
-                "Пользователь может иметь не более 5 адресов"
-            )
-        else:
-            return super().save(*args, **kwargs)
-
-
-    class Meta:
-        verbose_name = "Контактная информация пользователя"
-        verbose_name_plural = "Контактные данные пользователей"
-        constraints = [
-            models.UniqueConstraint(
-                fields=["user"],
-                name="unique_user_address"
-            )
         ]
-
-ral = "Токены подтверждения"

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from django import forms
 from django.contrib import admin
-from django.core.exceptions import ValidationError
+from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.utils.translation import gettext_lazy as _
 
 from backend.models import (
@@ -11,13 +11,60 @@ from backend.models import (
     Order,
     OrderItem,
     Parameter,
-    Phone,
     Product,
     ProductInfo,
     ProductParameter,
     Shop,
     User,
 )
+from backend.utils import normalize_phone_number
+
+
+class UserAdminForm(forms.ModelForm):
+    phone_number = forms.CharField(
+        label="Телефон",
+        required=False,
+        max_length=20,
+        help_text="Формат: +7 999 999-99-99"
+    )
+
+    class Meta:
+        model = User
+        fields = [
+            "email",
+            "password",
+            "first_name",
+            "last_name",
+            "company",
+            "position",
+            "phone_number",
+            "type",
+            "is_active",
+            "is_staff",
+            "is_superuser",
+            "groups",
+            "user_permissions",
+            "last_login",
+            "date_joined",
+        ]
+
+    def clean_phone_number(self):
+        raw_number = self.cleaned_data.get("phone_number")
+        if raw_number:
+            cleaned_digits = "".join(filter(str.isdigit, raw_number))
+            if len(cleaned_digits) > 20:
+                raise ValidationError("Номер слишком длинный.")
+            # Нормализуем через утилиту
+            return normalize_phone_number(raw_number)
+        return raw_number
+
+    def save(self, commit=True):
+        user = super().save(commit=False)
+        # Убедимся, что нормализованный номер сохранится
+        user.phone_number = self.cleaned_data["phone_number"]
+        if commit:
+            user.save()
+        return user
 
 
 class ContactForm(forms.ModelForm):
@@ -39,24 +86,42 @@ class ContactForm(forms.ModelForm):
             "appartment",
         ]
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Заполняем поле phone_number текущим значением из User
+        try:
+            if self.instance and self.instance.user:
+                self.fields["phone_number"].initial = self.instance.user.phone_number
+        except ObjectDoesNotExist:
+            # user был удалён, но контакт остался
+            pass
+        except AttributeError:
+            # user — не существует как атрибут
+            pass
+
     def clean_phone_number(self):
-        number = self.cleaned_data.get("phone_number")
-        if number and not number.isdigit():
-            raise ValidationError("Телефон должен содержать только цифры.")
-        return number
+        raw_number = self.cleaned_data.get("phone_number")
+        if raw_number:
+            # Валидация длины
+            cleaned_digits = "".join(filter(str.isdigit, raw_number))
+            if len(cleaned_digits) > 20:
+                raise ValidationError("Номер слишком длинный.")
+            # Нормализуем
+            return normalize_phone_number(raw_number)
+        return raw_number
 
     def save(self, commit=True):
-        contact = super().save(commit=commit)
-        phone_number = self.cleaned_data.get("phone_number")
+        contact = super().save(commit=False)
+        normalized_phone = self.cleaned_data.get("phone_number")  # уже нормализован
 
-        # Получаем пользователя из контакта
         user = contact.user
 
-        # Обновляем или создаём телефон
-        phone, created = Phone.objects.get_or_create(user=user)
-        if phone_number:
-            phone.phone_number = phone_number
-            phone.save()
+        if commit:
+            contact.save()
+
+        if user and user.phone_number != normalized_phone:
+            user.phone_number = normalized_phone
+            user.save(update_fields=["phone_number"])
 
         return contact
 
@@ -77,7 +142,6 @@ class ProductParameterInline(admin.StackedInline):
     verbose_name_plural = _("Характеристики продукта")
     fields = ("parameter", "value")
     autocomplete_fields = ("parameter",)
-
 
 
 class ProductInfoInline(admin.StackedInline):
@@ -108,13 +172,6 @@ class ContactInline(admin.StackedInline):
         return 5 # Максимум 5 записей
 
 
-class UserPhoneInline(admin.StackedInline):
-    model = Phone
-    extra = 0
-    verbose_name = "Телефон"
-    verbose_name_plural = "Телефоны"
-
-
 class OrderInline(admin.StackedInline):
     model = Order
     extra = 0
@@ -126,11 +183,15 @@ class OrderInline(admin.StackedInline):
 
 @admin.register(User)
 class UserAdmin(admin.ModelAdmin):
-    list_display = ("email", "first_name", "last_name", "is_active", "is_staff")
+    form = UserAdminForm
+    list_display = (
+        "email", "first_name", "last_name",
+        "formatted_phone", "is_active", "is_staff"
+    )
     search_fields = ("email", "first_name", "last_name")
     list_filter = ("is_active", "type")
     ordering = ("email",)
-    inlines = [ContactInline, UserPhoneInline, OrderInline]
+    inlines = [ContactInline,  OrderInline]
     fieldsets = (
         (None, {"fields": ("email", "password")}),
         (
@@ -142,6 +203,7 @@ class UserAdmin(admin.ModelAdmin):
                     "company",
                     "username",
                     "position",
+                    "phone_number",
                     "type",
                 )
             },
@@ -160,15 +222,15 @@ class UserAdmin(admin.ModelAdmin):
         ),
         ("Important dates", {"fields": ("last_login", "date_joined")}),
     )
-    def get_phone(self, obj):
-        return obj.user_phone.phone_number if hasattr(obj, "user_phone") else None
 
-    def get_queryset(self, request):
-        return super().get_queryset(request).prefetch_related(
-            "user_phone",
-            "orders"
-        )
-    get_phone.short_description = "Телефон"
+    def formatted_phone(self, obj):
+        phone = obj.phone_number
+        if phone and phone.startswith("+7") and len(phone) == 12:
+            number = phone[1:]  # убираем +
+            return f"{number[0]} ({number[1:4]}) {number[4:7]}-{number[7:9]}-{number[9:]}"
+        return phone or ""
+
+    formatted_phone.short_description = "Телефон (форматированный)"
 
 
 @admin.register(Shop)
@@ -176,7 +238,6 @@ class ShopAdmin(admin.ModelAdmin):
     list_display = ("name", "url", "user", "state")
     search_fields = ("name", "url", "state")
     inlines = [ProductInfoInlineForShop]
-
 
 
 @admin.register(Category)
@@ -309,16 +370,13 @@ class ContactAdmin(admin.ModelAdmin):
         return obj.user.email if obj.user else None
 
     def formatted_phone(self, obj):
-        phone = getattr(obj.user, "user_phone", None)
-        if phone and phone.phone_number:
-            number = phone.phone_number
-            return (
-                f"+{number[:1]} "
-                f"({number[1:4]}) "
-                f"{number[4:7]}"
-                f"-{number[7:9]}"
-                f"-{number[9:]}"
-            )
+        user = obj.user
+        if user and user.phone_number:
+            number = user.phone_number
+            # Проверим формат: +7XXXXXXXXXX
+            if number.startswith("+7") and len(number) == 12:
+                n = number[1:]
+                return f"+{n[0]} ({n[1:4]}) {n[4:7]}-{n[7:9]}-{n[9:]}"
         return ""
 
     def get_queryset(self, request):

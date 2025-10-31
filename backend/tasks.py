@@ -24,28 +24,51 @@ def delete_expired_tokens():
 
 def create_periodic_task():
     try:
-        # Создаём уникальный интервал
-        schedule, created = IntervalSchedule.objects.get_or_create(
+        # Создаём или получаем интервал
+        schedule, _ = IntervalSchedule.objects.get_or_create(
             every=1,
             period=IntervalSchedule.DAYS,
-            defaults={"name": "День для удаления токенов"},
         )
 
-        # Создаём или получаем периодическую задачу
-        task, created = PeriodicTask.objects.get_or_create(
-            name="Удаление истёкших токенов",
-            defaults={
-                "task": "backend.tasks.delete_expired_tokens",
-                "interval": schedule,
-                "one_off": False,
-                "enabled": True,
-            }
-        )
+        # Проверяем существование задачи
+        try:
+            task = PeriodicTask.objects.get(name="Удаление истёкших токенов")
 
-        if created:
-            logger.info("Периодическая задача 'Удаление истёкших токенов' создана.")
-        else:
-            logger.info("Периодическая задача 'Удаление истёкших токенов' уже существует.")
+            # Проверяем, нужно ли обновлять задачу
+            needs_update = (
+                task.interval != schedule
+                or task.task != "backend.tasks.delete_expired_tokens"
+                or not task.enabled
+                or task.one_off
+            )
+
+            if needs_update:
+                task.interval = schedule
+                task.task = "backend.tasks.delete_expired_tokens"
+                task.enabled = True
+                task.one_off = False
+                task.save()
+                logger.info(
+                    "🔄 Периодическая задача 'Удаление истёкших токенов' обновлена."
+                )
+            else:
+                logger.info(
+                    "✅ Периодическая задача 'Удаление истёкших токенов' уже актуальна."
+                )
+
+        except PeriodicTask.DoesNotExist:
+            # Создаём новую задачу
+            task = PeriodicTask.objects.create(
+                name="Удаление истёкших токенов",
+                task="backend.tasks.delete_expired_tokens",
+                interval=schedule,
+                one_off=False,
+                enabled=True,
+            )
+            logger.info("✅ Периодическая задача 'Удаление истёкших токенов' создана.")
+
+        return task
 
     except Exception as e:
-        logger.error(f"Ошибка при создании периодической задачи: {e}")
+        logger.error(f"❌ Ошибка при создании периодической задачи: {e}")
+        return None

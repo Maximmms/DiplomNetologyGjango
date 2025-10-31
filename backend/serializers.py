@@ -28,34 +28,6 @@ def validate_phone_number(value: str) -> str:
     return digits
 
 
-class ContactPhoneSerializer(serializers.ModelSerializer):
-    phone_number = serializers.CharField(
-        source="phone_number",
-        validators=[validate_phone_number],
-        required=False,
-        allow_null=True,
-        help_text="Формат: +7 (XXX) XX-XX-XX"
-    )
-
-    class Meta:
-        model = Contact
-        fields = [
-            "user", "city", "street", "building", "appartment", "phone_number"
-        ]
-
-    def to_representation(self, instance):
-        data = super().to_representation(instance)
-        phone = data.get("phone_number")
-        if phone:
-            # Формат: +7 (XXX) XX-XX-XX
-            formatted_phone = (f"+{phone[:1]} "
-                                f"({phone[1:4]}) "f"({phone[1:4]}) "
-                                f"{phone[4:7]}-"
-                                f"{phone[7:9]}-"
-                                f"{phone[9:]}")
-            data["phone_number"] = formatted_phone
-        return data
-
 class ContactSerializer(serializers.ModelSerializer):
     class Meta:
         model = Contact
@@ -71,12 +43,28 @@ class ContactSerializer(serializers.ModelSerializer):
 
 class UserSerializer(serializers.ModelSerializer):
     contacts = ContactSerializer(many=True, read_only=True)
+    password = serializers.CharField(write_only=True)
+    phone_number = serializers.CharField(
+        validators=[validate_phone_number],
+        required=False,
+        allow_null=True,
+        help_text="Формат: +7 (XXX) XX-XX-XX",
+    )
 
     class Meta:
+        fields = (
+            "id",
+            "email",
+            "password",
+            "username",
+            "first_name",
+            "last_name",
+            "phone_number",
+            "company",
+            "position",
+            "contacts",
+        )
         model = User
-        fields = [
-            "id", "email", "first_name", "last_name", "company", "position", "contacts", "password", "username",
-        ]
         read_only_fields = [
             "id",
         ]
@@ -113,6 +101,19 @@ class UserSerializer(serializers.ModelSerializer):
 
         instance.save()
         return instance
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        phone = data.get("phone_number")
+        if phone:
+            # Формат: +7 (XXX) XX-XX-XX
+            formatted_phone = (f"+{phone[:1]} "
+                                f"({phone[1:4]}) "f"({phone[1:4]}) "
+                                f"{phone[4:7]}-"
+                                f"{phone[7:9]}-"
+                                f"{phone[9:]}")
+            data["phone_number"] = formatted_phone
+        return data
 
 class CategorySerializer(serializers.ModelSerializer):
     class Meta:

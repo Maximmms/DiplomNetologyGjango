@@ -35,6 +35,7 @@ from backend.models import User
 try:
     user = User.objects.create_superuser(
         email='$DJANGO_SUPERUSER_EMAIL',
+        username='$DJANGO_SUPERUSER_USERNAME',
         password='$DJANGO_SUPERUSER_PASSWORD',
         is_active=True
     )
@@ -50,6 +51,7 @@ else
 from backend.models import User
 try:
     user = User.objects.get(email='$DJANGO_SUPERUSER_EMAIL')
+    user = User.objects.get(username='$DJANGO_SUPERUSER_USERNAME')
     user.set_password('$DJANGO_SUPERUSER_PASSWORD')
     user.is_active = True
     user.save()

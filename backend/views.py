@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from django.contrib.auth import get_user_model
-from rest_framework import status, viewsets
+from drf_spectacular.utils import extend_schema, extend_schema_view
+from rest_framework import mixins, status, viewsets
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -10,11 +11,16 @@ from backend.serializers import UserSerializer
 
 User = get_user_model()
 
-class UserRegisterViewSet(viewsets.ModelViewSet):
+
+@extend_schema_view(
+    create=extend_schema(tags=["USER"])
+)
+class UserRegisterViewSet(viewsets.GenericViewSet, mixins.CreateModelMixin):
     permission_classes = [AllowAny]
     queryset = User.objects.all()
     serializer_class = UserSerializer
 
+    @extend_schema(summary="Регистрация нового пользователя и получение JWT-токенов")
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         if not serializer.is_valid():
@@ -40,11 +46,15 @@ class UserRegisterViewSet(viewsets.ModelViewSet):
         }, status=status.HTTP_201_CREATED)
 
 
-class UserLoginViewSet(viewsets.ModelViewSet):
+@extend_schema_view(
+    create=extend_schema(tags=["USER"])
+)
+class UserLoginViewSet(viewsets.GenericViewSet, mixins.CreateModelMixin):
     permission_classes = [AllowAny]
     queryset = User.objects.all()
     serializer_class = UserSerializer
 
+    @extend_schema(summary="Авторизация пользователя и получение JWT-токенов")
     def create(self, request, *args, **kwargs):
         data = request.data
         email = data.get("email")
@@ -88,11 +98,15 @@ class UserLoginViewSet(viewsets.ModelViewSet):
         )
 
 
-class UserLogoutViewSet(viewsets.ModelViewSet):
+@extend_schema_view(
+    create=extend_schema(tags=["USER"])
+)
+class UserLogoutViewSet(viewsets.GenericViewSet, mixins.CreateModelMixin):
     permission_classes = [IsAuthenticated]
     queryset = User.objects.all()
     serializer_class = UserSerializer
 
+    @extend_schema(summary="Выход пользователя из системы")
     def create(self, request, *args, **kwargs):
         refresh_token = request.data.get("refresh_token")
         if not refresh_token:
