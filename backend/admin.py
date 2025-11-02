@@ -17,7 +17,7 @@ from backend.models import (
     Shop,
     User,
 )
-from backend.utils import normalize_phone_number
+from backend.utils.normalizers import normalize_phone_number
 
 
 class UserAdminForm(forms.ModelForm):

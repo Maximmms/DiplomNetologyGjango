@@ -150,7 +150,14 @@ STATICFILES_DIRS = (
     os.path.join(BASE_DIR, "static"),
 )
 
+# Настройки электронной почты (SMTP)
 EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL")
+EMAIL_HOST = os.getenv("EMAIL_HOST")
+EMAIL_PORT = os.getenv("EMAIL_PORT")
+EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS")
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
@@ -166,18 +173,14 @@ REST_FRAMEWORK = {
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ),
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    "EXCEPTION_HANDLER": "backend.utils.exception_handler.custom_exception_handler",
 }
 
 SIMPLE_JWT = {
-
     "ROTATE_REFRESH_TOKENS": True,
-
     "BLACKLIST_AFTER_ROTATION": True,
-
     "ACCESS_TOKEN_LIFETIME": timedelta(days=1),
-
     "REFRESH_TOKEN_LIFETIME": timedelta(days=2),
-
 }
 
 LOGGING = {
@@ -194,31 +197,49 @@ LOGGING = {
             "class": "logging.StreamHandler",
             "formatter": "standard",
         },
-        "file": {
+        "jwt_tokens_file": {
             "level": "INFO",
             "class": "logging.FileHandler",
             "filename": os.path.join(BASE_DIR, "logs", "jwt_tokens.log"),
             "formatter": "standard",
         },
+        "file": {
+            "level": "INFO",
+            "class": "logging.FileHandler",
+            "filename": os.path.join(BASE_DIR, "logs", "django.log"),
+            "formatter": "standard",
+        },
+        "send_email_file": {
+            "level": "INFO",
+            "class": "logging.FileHandler",
+            "filename": os.path.join(BASE_DIR, "logs", "send_email.log"),
+            "formatter": "standard",
+        },
+        "celery_file": {
+            "level": "INFO",
+            "class": "logging.FileHandler",
+            "filename": os.path.join(BASE_DIR, "logs", "celery.log"),
+            "formatter": "standard",
+        }
     },
     "loggers": {
         "celery": {
-            "handlers": ["console", "file"],
+            "handlers": ["console", "celery_file"],
             "level": "INFO",
             "propagate": True
         },
-        "celery.beats": {
-            "handlers": ["console", "file"],
-            "level": "INFO",
-            "propagate": True,
-        },
-        "django": {
-            "handlers": ["console", "file"],
+        "email_sending":  {
+            "handlers": ["console", "send_email_file"],
             "level": "INFO",
             "propagate": True
+        },
+        "backend": {
+            "handlers": ["console", "file"],
+            "level": "INFO",
+            "propagate": False,
         },
         "jwt_tokens": {
-            "handlers": ["console", "file"],
+            "handlers": ["console", "jwt_tokens_file"],
             "level": "INFO",
             "propagate": True,
         },
@@ -236,17 +257,19 @@ CELERY_BEAT_SCHEDULE = {
 }
 
 SPECTACULAR_SETTINGS = {
-    "TITLE": "API",
-    "DESCRIPTION": "Документация API",
+    "TITLE": "Backend API",
+    "DESCRIPTION": "API для интернет-магазина: управление пользователями, заказами, магазинами",
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
-    "SWAGGER_UI_SETTINGS": {
-        "persistAuthorization": True,
-    },
     "TAGS": [
-        {"name": "USER", "description": "Операции, связанные с пользователями: регистрация, вход, выход"},
+        {
+            "name": "USER",
+            "description": "Работа с пользователями: регистрация, авторизация, профиль, контакты.",
+        },
     ],
+    "COMPONENT_SPLIT_REQUEST": True,
+    "SORT_OPERATIONS": False,
+    "OPERATION_ID_GENERATOR": lambda method, path, operation: operation["operationId"],
 }
-
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"

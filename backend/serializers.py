@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from django.contrib.auth import get_user_model
+from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 
 from backend.models import (
@@ -13,32 +14,54 @@ from backend.models import (
     ProductParameter,
     Shop,
 )
+from backend.utils.normalizers import (
+    is_valid_email,
+    normalize_email,
+    normalize_phone_number,
+    validate_phone_number,
+)
 
 User = get_user_model()
-
-def validate_phone_number(value: str) -> str:
-    digits = "".join(filter(str.isdigit, value))
-
-    if len(digits) != 11:
-        raise serializers.ValidationError("Неверный формат номера. Пример: +7 (999) 123-45-67")
-
-    if not digits.startswith("7"):
-        raise serializers.ValidationError("Номер должен быть в формате РФ (начинаться с 7)")
-
-    return digits
 
 
 class ContactSerializer(serializers.ModelSerializer):
     class Meta:
         model = Contact
         fields = [
-            "id","user", "city", "street", "building", "appartment",
+            "id", "zipcode", "city", "street",
+            "building", "appartment"
         ]
         read_only_fields = ["id",]
-        extra_kwargs = {
-            "user": {"write_only": True}
-        }
 
+    def validate_zipcode(self, value):
+        if not value.isdigit():
+            raise serializers.ValidationError("Индекс должен содержать только цифры.")
+        if len(value) != 6:
+            raise serializers.ValidationError("Индекс должен содержать 6 цифр.")
+        return value
+
+    def validate_city(self, value):
+        if len(value) < 2:
+            raise serializers.ValidationError("Название города должно быть не менее 2 символов.")
+        return value.strip()
+
+    def validate_street(self, value):
+        if len(value) < 2:
+            raise serializers.ValidationError("Улица должна быть не менее 2 символов.")
+        return value.strip()
+
+    def validate_building(self, value):
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError("Поле 'building' не может быть пустым.")
+        return value
+
+    def validate_appartment(self, value):
+        if value is not None:
+            value = value.strip()
+            if value and len(value) > 10:
+                raise serializers.ValidationError("Номер квартиры не должен превышать 10 символов.")
+        return value
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -68,6 +91,26 @@ class UserSerializer(serializers.ModelSerializer):
         read_only_fields = [
             "id",
         ]
+        write_only_fields = [
+            "password",
+        ]
+
+    def validate_email(self, value):
+        normalized = normalize_email(value)
+        if not is_valid_email(normalized):
+            raise serializers.ValidationError("Введите корректный email-адрес.")
+        # Проверка уникальности
+        if User.objects.filter(email=normalized).exists():
+            raise serializers.ValidationError("Пользователь с таким email уже существует.")
+        return normalized
+
+    def validate_phone_number(self, value):
+        normalized = normalize_phone_number(value)
+        if not normalized:
+            raise serializers.ValidationError(
+                "Неверный формат номера телефона. Ожидается 10 или 11 цифр (с 8 или +7)."
+            )
+        return normalized
 
     def create(self, validated_data):
         # Извлекаем обязательные поля
@@ -114,6 +157,21 @@ class UserSerializer(serializers.ModelSerializer):
                                 f"{phone[9:]}")
             data["phone_number"] = formatted_phone
         return data
+
+
+class ChangePasswordSerializer(serializers.Serializer):
+    old_password = serializers.CharField(required=True, write_only=True)
+    new_password = serializers.CharField(required=True, write_only=True)
+
+    def validate_new_password(self, value):
+        validate_password(value)
+        return value
+
+    def validate(self, attrs):
+        if attrs["old_password"] == attrs["new_password"]:
+            raise serializers.ValidationError("Новый пароль должен отличаться от старого.")
+        return attrs
+
 
 class CategorySerializer(serializers.ModelSerializer):
     class Meta:
@@ -188,3 +246,22 @@ class OrderSerializer(serializers.ModelSerializer):
             "id", "order_items", "status", "dt", "total_price", "contact"
         ]
         read_only_fields = ["id",]
+
+
+
+class SendEmailConfirmationSerializer(serializers.Serializer):
+    email = serializers.EmailField(required = True)
+
+
+class VerifyEmailConfirmationSerializer(serializers.Serializer):
+    code = serializers.CharField(
+        max_length = 12,
+        min_length = 12,
+        required = True,
+    )
+
+class EmailStatusSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    sent = serializers.BooleanField()
+    created_at = serializers.DateTimeField()
+    is_verified = serializers.BooleanField()
