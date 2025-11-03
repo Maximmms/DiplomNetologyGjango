@@ -23,7 +23,6 @@ from backend.utils.normalizers import (
 
 User = get_user_model()
 
-
 class ContactSerializer(serializers.ModelSerializer):
     class Meta:
         model = Contact
@@ -173,22 +172,136 @@ class ChangePasswordSerializer(serializers.Serializer):
         return attrs
 
 
+class SendEmailConfirmationSerializer(serializers.Serializer):
+    email = serializers.EmailField(required = True)
+
+
+class VerifyEmailConfirmationSerializer(serializers.Serializer):
+    code = serializers.CharField(
+        max_length = 12,
+        min_length = 12,
+        required = True,
+    )
+
+class EmailStatusSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    sent = serializers.BooleanField()
+    created_at = serializers.DateTimeField()
+    is_verified = serializers.BooleanField()
+
+
 class CategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = Category
-        fields = [
-            "id", "name"
+        fields = ["id", "name"]
+        read_only_fields = [
+            "id",
         ]
-        read_only_fields = ["id",]
 
 
-class ShopSerializer(serializers.ModelSerializer):
+class ShopListSerializer(serializers.ModelSerializer):
+    owner = serializers.SerializerMethodField()
+    categories_count = serializers.SerializerMethodField()
+    state = serializers.SerializerMethodField()
+
     class Meta:
         model = Shop
-        fields = [
-            "id", "name", "state"
-        ]
-        read_only_fields = ["id",]
+        fields = (
+            "id",
+            "name",
+            "url",
+            "state",
+            "owner",
+            "categories_count",
+        )
+
+        def get_owner(self, obj):
+            return (
+                f"{obj.user.first_name} {obj.user.last_name}".strip()
+                or obj.user.username
+            )
+
+        def get_state(self, obj):
+            return "Принимает заказы" if obj.state else "Не принимает заказы"
+
+        def get_categories_count(self, obj):
+            return obj.categories.count()
+
+
+class ShopDetailSerializer(serializers.ModelSerializer):
+    """
+    Сериализатор для детальной информации — включает список категорий.
+    """
+    owner = serializers.SerializerMethodField()
+    state = serializers.SerializerMethodField()
+    categories = CategorySerializer(many=True, read_only=True, source="categories.all")
+
+    class Meta:
+        model = Shop
+        fields = (
+            "id",
+            "name",
+            "url",
+            "state",
+            "owner",
+            "categories",
+        )
+
+    def get_owner(self, obj):
+        return (
+            f"{obj.user.first_name} {obj.user.last_name}".strip() or obj.user.username
+        )
+
+    def get_state(self, obj):
+        return "Принимает заказы" if obj.state else "Не принимает заказы"
+
+
+class ProductInfoSerializer(serializers.ModelSerializer):
+    price = serializers.DecimalField(
+        max_digits=10,
+        decimal_places=2
+    )
+    price_rrc = serializers.DecimalField(
+        max_digits=10,
+        decimal_places=2
+    )
+    quantity = serializers.DecimalField(
+        max_digits=10,
+        decimal_places=2
+    )
+    unit_of_measure = serializers.CharField()
+    product_name = serializers.CharField(
+        source="product.name",
+        read_only=True
+    )
+    category_name = serializers.CharField(
+        source="product.category.name",
+        read_only=True
+    )
+
+    class Meta:
+        model = ProductInfo
+        fields = (
+            "id",
+            "product_name",
+            "category_name",
+            "model",
+            "external_id",
+            "price",
+            "price_rrc",
+            "quantity",
+            "unit_of_measure",
+        )
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        # Преобразуем Decimal в float для лучшей совместимости с JSON
+        data["price"] = float(data["price"])
+        data["price_rrc"] = float(data["price_rrc"])
+        data["quantity"] = float(data["quantity"])
+        return data
+
+
 
 class ProductSerializer(serializers.ModelSerializer):
     category = serializers.StringRelatedField()
@@ -206,18 +319,6 @@ class ProductParameterSerializer(serializers.ModelSerializer):
         fields = [
             "parameter", "value"
         ]
-
-
-class ProductInfoSerializer(serializers.ModelSerializer):
-    product = serializers.StringRelatedField()
-    product_parameters = ProductParameterSerializer(many=True, read_only=True)
-
-    class Meta:
-        model = ProductInfo
-        fields = [
-            "id", "model", "product", "quantity", "shop", "price", "price_rrc", "product_parameters",
-        ]
-        read_only_fields = ["id",]
 
 
 class OrderItemSerializer(serializers.ModelSerializer):
@@ -246,22 +347,3 @@ class OrderSerializer(serializers.ModelSerializer):
             "id", "order_items", "status", "dt", "total_price", "contact"
         ]
         read_only_fields = ["id",]
-
-
-
-class SendEmailConfirmationSerializer(serializers.Serializer):
-    email = serializers.EmailField(required = True)
-
-
-class VerifyEmailConfirmationSerializer(serializers.Serializer):
-    code = serializers.CharField(
-        max_length = 12,
-        min_length = 12,
-        required = True,
-    )
-
-class EmailStatusSerializer(serializers.Serializer):
-    email = serializers.EmailField()
-    sent = serializers.BooleanField()
-    created_at = serializers.DateTimeField()
-    is_verified = serializers.BooleanField()

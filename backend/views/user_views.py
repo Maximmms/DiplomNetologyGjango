@@ -9,6 +9,7 @@ from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from backend.loggers.backend_logger import logger
@@ -428,7 +429,7 @@ class UserEmailConfirmationViewSet(viewsets.GenericViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = SendEmailConfirmationSerializer
 
-    @action(detail=False, methods=["post"], url_path="email/send", url_name="comfirm-send")
+    @action(detail=False, methods=["post"], url_path="send", url_name="comfirm-send")
     def send_confirmation_code(self, request):
         logger.info(f"Запрос на отправку кода подтверждения от пользователя {request.user.id}")
         serializer = self.get_serializer(data=request.data)
@@ -460,7 +461,7 @@ class UserEmailConfirmationViewSet(viewsets.GenericViewSet):
             status=status.HTTP_200_OK
         )
 
-    @action(detail=False, methods=["post"], url_path="email/verify", url_name="comfirm-verify")
+    @action(detail=False, methods=["post"], url_path="verify", url_name="comfirm-verify")
     def verify_confirmation_code(self, request):
         serializer = VerifyEmailConfirmationSerializer(data=request.data)
         if not serializer.is_valid():
@@ -504,20 +505,22 @@ class UserEmailConfirmationViewSet(viewsets.GenericViewSet):
 
 
 @extend_schema_view(
-    status=extend_schema(
+    get=extend_schema(
         summary="Получить статус подтверждения email",
-        description="Возвращает статус: отправлен ли код и подтверждён ли email.",
+        description="Возвращает статус: отправлен ли код подтверждения и подтверждён ли email текущего пользователя.",
         tags=["USER"],
         responses=EmailStatusSerializer,
         operation_id="user_email_status",
     )
 )
-class UserEmailStatusViewSet(viewsets.GenericViewSet):
+class UserEmailStatusAPIView(APIView):
+    """
+    Возвращает статус подтверждения email.
+    """
     permission_classes = [IsAuthenticated]
     serializer_class = EmailStatusSerializer
 
-    @action(detail=False, methods=["get"], url_path="status", url_name="status")
-    def status(self, request):
+    def get(self, request):
         user = request.user
         try:
             confirmation = EmailConfirmation.objects.get(user=user)

@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 
 import jwt
+from autoslug import AutoSlugField
 from django.conf import settings
 from django.contrib.auth.base_user import BaseUserManager
 from django.contrib.auth.models import AbstractUser, PermissionsMixin
@@ -236,20 +237,20 @@ class Contact(models.Model):
         verbose_name = "Контактная информация пользователя"
         verbose_name_plural = "Контактные данные пользователей"
         constraints = [
-            models.UniqueConstraint(
-                fields=["user"],
-                name="unique_user_address"
-            )
+            models.UniqueConstraint(fields=["user"], name="unique_user_address")
         ]
+
+
 class Shop(models.Model):
-    url = models.URLField(
-        verbose_name="Сайт магазина",
-        null=True,
-        blank=True
-    )
-    name = models.CharField(
-        max_length=255,
-        verbose_name="Название магазина"
+    url = models.URLField(verbose_name="Сайт магазина", null=True, blank=True)
+    name = models.CharField(max_length=255, verbose_name="Название магазина")
+    slug = AutoSlugField(
+        populate_from="name",
+        unique=True,
+        always_update=False,
+        max_length=120,
+        verbose_name="Slug",
+        help_text="Уникальный идентификатор URL (генерируется автоматически)"
     )
     user = models.ForeignKey(
         User,
@@ -259,10 +260,7 @@ class Shop(models.Model):
         null=True,
         related_name="shops",
     )
-    state = models.BooleanField(
-        verbose_name="Прием заказов",
-        default=True
-    )
+    state = models.BooleanField(verbose_name="Прием заказов", default=True)
 
     def __str__(self):
         return self.name or self.url or "Без названия"
