@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import cache_page
-from drf_spectacular.utils import extend_schema, extend_schema_view
-from rest_framework import generics
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
+from rest_framework import generics, status
+from rest_framework.generics import GenericAPIView
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
@@ -20,22 +21,47 @@ from backend.serializers import (
     get=extend_schema(
         summary="Получить список магазинов",
         description="""
-            Возвращает список всех активных магазинов.
-            - Доступно всем.
-            - Поддерживается пагинация.
-            - Можно фильтровать по названию: ?search=электро
+            Возвращает список всех магазинов с возможностью поиска и фильтрации.
+
+            ---
+            #### Параметры:
+            - `search` — частичное совпадение по названию магазина
+            - `category_id` — магазины, связанные с указанной категорией
+            - `page`, `page_size` — пагинация
         """,
         tags=["SHOP"],
         parameters=[
-            {
-                "name": "search",
-                "in": "query",
-                "description": "Поиск магазина по названию (частичное совпадение)",
-                "required": False,
-                "schema": {"type": "string"},
-            }
+            OpenApiParameter(
+                name="search",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="Поиск магазина по названию (частичное совпадение)",
+                required=False
+            ),
+            OpenApiParameter(
+                name="category_id",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                description="Фильтрация по ID категории",
+                required=False
+            ),
+            OpenApiParameter(
+                name="page",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                description="Номер страницы",
+                required=False
+            ),
+            OpenApiParameter(
+                name="page_size",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                description="Количество магазинов на странице",
+                required=False
+            ),
         ],
         responses={200: ShopListSerializer(many=True)},
+        operation_id="shop_list",
     )
 )
 @method_decorator(cache_page(60 * 15), name="dispatch")
@@ -119,89 +145,24 @@ class CategoryPagination(PageNumberPagination):
 @extend_schema_view(
     get=extend_schema(
         summary="Получить продукты магазина по категориям",
-        description="""
-            Возвращает товары магазина, сгруппированные по категориям.
-
-            Поддерживается:
-            - Поиск по названию товара: `?search=iphone`
-            - Фильтрация по категории: `?category_id=3`
-            - Пагинация по категориям: `?page=2&page_size=10`
-
-            Пример ответа:
-            json {
-                "status": true,
-                "results": {
-                    "Смартфоны": [
-                        {
-                            "id": 1,
-                            "name": "iPhone 15",
-                            "model": "Apple iPhone 15 Pro",
-                            "price": 99990,
-                            "quantity": 10
-                        }
-                    ],
-                    "Наушники": [
-                        {
-                            "id": 21,
-                            "name": "AirPods Pro",
-                            "model": "Apple AirPods Pro 2",
-                            "price": 25990,
-                            "quantity": 25,
-                        }
-                    ]
-                }
-            }
-            ---
-            #### Особенности:
-            - Доступно всем (авторизованным и неавторизованным).
-            - Возвращаются только магазины с активным пользователем.
-            - Категории без товаров не отображаются.
-        """,
+        description="Возвращает товары магазина, сгруппированные по категориям.",
         tags=["SHOP"],
         parameters=[
-            {
-                "name": "slug",
-                "in": "path",
-                "description": "Slug магазина (например, elektronika-24)",
-                "required": True,
-                "schema": {"type": "string"},
-            },
-            {
-                "name": "search",
-                "in": "query",
-                "description": "Поиск по названию товара (частичное совпадение)",
-                "required": False,
-                "schema": {"type": "string"},
-            },
-            {
-                "name": "category_id",
-                "in": "query",
-                "description": "Фильтрация по ID категории",
-                "required": False,
-                "schema": {"type": "integer"},
-            },
-            {
-                "name": "page",
-                "in": "query",
-                "description": "Номер страницы",
-                "required": False,
-                "schema": {"type": "integer"},
-            },
-            {
-                "name": "page_size",
-                "in": "query",
-                "description": "Количество категорий на странице",
-                "required": False,
-                "schema": {"type": "integer"},
-            },
+            OpenApiParameter("slug", str, OpenApiParameter.PATH, "Slug магазина", True),
+            OpenApiParameter("search", str, OpenApiParameter.QUERY, "Поиск по названию товара", False),
+            OpenApiParameter("category_id", int, OpenApiParameter.QUERY, "Фильтрация по ID категории", False),
+            OpenApiParameter("page", int, OpenApiParameter.QUERY, "Номер страницы", False),
+            OpenApiParameter("page_size", int, OpenApiParameter.QUERY, "Количество категорий на странице", False),
         ],
-        responses={200: ShopProductsSerializer(many=True)},
+        responses={200: dict},
+        operation_id="shop_products",
     )
 )
 @method_decorator(cache_page(60 * 15), name="dispatch")
-class ShopProductsView(generics.ListAPIView):
+class ShopProductsView(GenericAPIView):
     """
-    Получение информации о продуктах в конкретном магазине с детализацией по категориям.
+    Получение товаров магазина, сгруппированных по категориям.
+    Поддерживает поиск, фильтрацию и пагинацию по категориям.
     """
 
     queryset = (
@@ -209,16 +170,19 @@ class ShopProductsView(generics.ListAPIView):
         .prefetch_related("categories__products__product_info")
         .filter(user__is_active=True)
     )
-    serializer_class = ShopProductsSerializer
+    serializer_class = ProductInfoSerializer
     permission_classes = [AllowAny]
+    pagination_class = CategoryPagination
     lookup_field = "slug"
     lookup_url_kwarg = "slug"
 
     def get_object(self):
         """
-        Переопределяем, чтобы корректно обработать 404
+        Получаем магазин по slug.
         """
-        obj = super().get_object()
+        queryset = self.get_queryset()
+        filter_kwargs = {self.lookup_field: self.kwargs[self.lookup_url_kwarg]}
+        obj = generics.get_object_or_404(queryset, **filter_kwargs)
         self.check_object_permissions(self.request, obj)
         return obj
 
@@ -239,9 +203,10 @@ class ShopProductsView(generics.ListAPIView):
             try:
                 category_id = int(category_id)
                 product_infos = product_infos.filter(product__category_id=category_id)
-            except ValueError:
+            except (ValueError, TypeError):
                 return Response(
-                    {"status": False, "error": "Invalid category_id"}, status=400
+                    {"status": False, "error": "Invalid category_id"},
+                    status=status.HTTP_400_BAD_REQUEST
                 )
 
         # Группируем по категориям

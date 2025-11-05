@@ -31,9 +31,20 @@ User = get_user_model()
 @extend_schema_view(
     create=extend_schema(
         summary="Регистрация нового пользователя",
-        description="Создаёт нового пользователя и возвращает JWT-токены (access и refresh).",
+        description="Создаёт нового пользователя и возвращает JWT-токены (`access` и `refresh`).",
         tags=["USER"],
-        responses={201: dict, 400: dict, 500: dict},
+        request=UserSerializer,
+        responses={
+            201: {
+                "type": "object",
+                "properties": {
+                    "refresh": {"type": "string", "example": "eyJ..."},
+                    "access": {"type": "string", "example": "eyJ..."}
+                }
+            },
+            400: {"type": "object", "properties": {"error": {"type": "string"}}},
+            500: {"type": "object", "properties": {"error": {"type": "string"}}},
+        },
         operation_id="user_register",
     )
 )
@@ -69,70 +80,104 @@ class UserRegisterViewSet(viewsets.GenericViewSet, mixins.CreateModelMixin):
 
 
 @extend_schema_view(
-    create=extend_schema(
+    post=extend_schema(
         summary="Авторизация пользователя",
-        description="Возвращает JWT-токены (access и refresh) при корректных email и пароле.",
+        description="Возвращает JWT-токены (`access` и `refresh`) при корректных email и пароле.",
         tags=["USER"],
-        responses={200: dict, 400: dict, 401: dict, 403: dict, 404: dict},
+        request={
+            "application/json": {
+                "type": "object",
+                "properties": {
+                    "email": {"type": "string", "format": "email", "example": "user@example.com"},
+                    "password": {"type": "string", "format": "password", "example": "strongpassword123"}
+                },
+                "required": ["email", "password"]
+            }
+        },
+        responses={
+            200: {
+                "type": "object",
+                "properties": {
+                    "refresh": {"type": "string", "example": "eyJ..."},
+                    "access": {"type": "string", "example": "eyJ..."}
+                }
+            },
+            400: {"type": "object", "properties": {"error": {"type": "string"}}},
+            401: {"type": "object", "properties": {"error": {"type": "string"}}},
+            403: {"type": "object", "properties": {"error": {"type": "string"}}},
+            404: {"type": "object", "properties": {"error": {"type": "string"}}},
+        },
         operation_id="user_login",
     )
 )
-class UserLoginViewSet(viewsets.GenericViewSet, mixins.CreateModelMixin):
-    permission_classes = [AllowAny]
-    queryset = User.objects.all()
-    serializer_class = UserSerializer
+class UserLoginView(APIView):
+    """
+    Авторизация пользователя по email и паролю.
+    Возвращает JWT-токены.
+    """
 
-    @extend_schema(summary="Авторизация пользователя и получение JWT-токенов")
-    def create(self, request, *args, **kwargs):
-        data = request.data
-        email = normalize_email(data.get("email"))
-        password = data.get("password")
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        email = request.data.get("email")
+        password = request.data.get("password")
 
         if not email or not password:
             return Response(
-                {"error": f"Необходимо указать email и пароль {request}:{request.data}"},
+                {"error": "Требуются email и пароль."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        normalized_email = normalize_email(email)
+
         try:
-            user = User.objects.get(email=email)
+            user = User.objects.get(email=normalized_email)
         except User.DoesNotExist:
             return Response(
-                {"error": "Пользователь не найден"},
-                status=status.HTTP_404_NOT_FOUND,
+                {"error": "Пользователь не найден."}, status=status.HTTP_404_NOT_FOUND
             )
 
-        if not user.check_password(password):
-            return Response(
-                {"error": "Неверный пароль"},
-                status=status.HTTP_401_UNAUTHORIZED,
-            )
-
+        # Проверяем, активен ли аккаунт
         if not user.is_active:
             return Response(
-                {"error": "Аккаунт не активирован"},
+                {"error": "Аккаунт не активирован. Проверьте email."},
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        refresh = RefreshToken.for_user(user)
-        refresh.payload.update({"user_id": user.id, "email": user.email})
+        # Проверяем пароль
+        if not user.check_password(password):
+            return Response(
+                {"error": "Неверный пароль."}, status=status.HTTP_401_UNAUTHORIZED
+            )
 
-        return Response(
+        # Генерируем JWT-токены
+        refresh = RefreshToken.for_user(user)
+        refresh.payload.update(
             {
-                "refresh": str(refresh),
-                "access": str(refresh.access_token),
-            },
-            status=status.HTTP_200_OK,
+                "user_id": user.id,
+                "email": user.email,
+            }
         )
+
+        return Response({
+            "refresh": str(refresh),
+            "access": str(refresh.access_token),
+        }, status=status.HTTP_200_OK)
 
 
 @extend_schema_view(
     create=extend_schema(
-        summary="Выход пользователя (черный список refresh-токена)",
-        description="Добавляет refresh-токен в чёрный список, чтобы он больше не мог быть использован.",
+        summary="Выход пользователя",
+        description="Добавляет `refresh`-токен в чёрный список, делая его недействительным.",
         tags=["USER"],
-        request=dict,
-        responses={200: dict, 400: dict},
+        request=inline_serializer(
+            name="LogoutRequest",
+            fields={"refresh_token": serializers.CharField()}
+        ),
+        responses={
+            200: {"type": "object", "properties": {"success": {"type": "string"}}},
+            400: {"type": "object", "properties": {"error": {"type": "string"}}},
+        },
         operation_id="user_logout",
     )
 )
@@ -170,13 +215,8 @@ class UserLogoutViewSet(viewsets.GenericViewSet, mixins.CreateModelMixin):
         tags=["USER"],
         request=ChangePasswordSerializer,
         responses={
-            200: {
-                "type": "object",
-                "properties": {
-                    "success": {"type": "string"}
-                }
-            },
-            400: {"type": "object", "properties": {"error": {"type": "string"}}}
+            200: {"type": "object", "properties": {"success": {"type": "string"}}},
+            400: {"type": "object", "properties": {"error": {"type": "string"}}},
         },
         operation_id="user_change_password",
     )
@@ -217,39 +257,63 @@ class UserChangePasswordViewSet(viewsets.GenericViewSet):
 
 @extend_schema_view(
     list=extend_schema(
-        summary="Получить список адресов пользователя",
-        description="Возвращает все адреса, привязанные к текущему пользователю.",
+        summary="Получить список адресов",
+        description="Возвращает все адреса доставки, привязанные к пользователю.",
         tags=["USER"],
         responses={200: ContactSerializer(many=True)},
         operation_id="user_contact_list",
     ),
     create=extend_schema(
         summary="Добавить новый адрес",
-        description="Создаёт новый адрес доставки для пользователя.",
+        description="Создаёт новый адрес доставки.",
         tags=["USER"],
+        request=ContactSerializer,
         responses={201: ContactSerializer, 400: dict},
         operation_id="user_contact_create",
     ),
     update=extend_schema(
-        summary="Обновить адрес",
-        description="Полное обновление адреса.",
+        summary="Полное обновление адреса",
+        description="Полностью обновляет указанный адрес.",
         tags=["USER"],
+        request=ContactSerializer,
         responses={200: ContactSerializer, 400: dict, 404: dict},
         operation_id="user_contact_update",
     ),
     partial_update=extend_schema(
-        summary="Частично обновить адрес",
-        description="Частичное обновление полей адреса.",
+        summary="Частичное обновление адреса",
+        description="Обновляет только указанные поля адреса.",
         tags=["USER"],
+        request=ContactSerializer,
         responses={200: ContactSerializer, 400: dict, 404: dict},
         operation_id="user_contact_partial_update",
     ),
     destroy=extend_schema(
         summary="Удалить адрес",
-        description="Удаляет указанный адрес.",
+        description="Удаляет указанный адрес доставки.",
         tags=["USER"],
         responses={204: dict, 404: dict},
         operation_id="user_contact_destroy",
+    ),
+    me=extend_schema(
+        summary="Получить профиль + адреса",
+        description="Возвращает данные пользователя и все его адреса доставки.",
+        tags=["USER"],
+        responses=inline_serializer(
+            name="UserContactMeResponse",
+            fields={
+                "user_id": serializers.IntegerField(),
+                "username": serializers.CharField(),
+                "email": serializers.EmailField(),
+                "first_name": serializers.CharField(required=False),
+                "last_name": serializers.CharField(required=False),
+                "phone_number": serializers.CharField(required=False),
+                "company": serializers.CharField(required=False),
+                "position": serializers.CharField(required=False),
+                "type": serializers.CharField(),
+                "addresses": ContactSerializer(many=True),
+            },
+        ),
+        operation_id="user_contact_me",
     ),
 )
 class UserContactViewSet(viewsets.GenericViewSet,
@@ -357,15 +421,15 @@ class UserContactViewSet(viewsets.GenericViewSet,
 
 @extend_schema_view(
     retrieve=extend_schema(
-        summary="Получить профиль пользователя",
+        summary="Получить профиль",
         description="Возвращает основную информацию о текущем пользователе.",
         tags=["USER"],
         responses=UserSerializer,
         operation_id="user_profile_retrieve",
     ),
     partial_update=extend_schema(
-        summary="Частично обновить профиль пользователя",
-        description="Обновляет указанные поля профиля пользователя (например, имя, телефон и т.п.).",
+        summary="Частично обновить профиль",
+        description="Обновляет указанные поля профиля (например, имя, телефон и т.п.).",
         tags=["USER"],
         request=UserSerializer,
         responses={200: UserSerializer, 400: dict},
@@ -409,19 +473,19 @@ class UserProfileViewSet(viewsets.GenericViewSet, mixins.RetrieveModelMixin, mix
 
 @extend_schema_view(
     send_confirmation_code=extend_schema(
-        summary="Отправить код подтверждения на email",
-        description="Отправляет 12-значный код на email пользователя для подтверждения.",
+        summary="Отправить код подтверждения email",
+        description="Отправляет 12-значный код на email пользователя для подтверждения аккаунта.",
         tags=["USER"],
         request=SendEmailConfirmationSerializer,
-        responses={200: dict, 400: dict, 403: dict},
+        responses={200: {"type": "object", "properties": {"success": {"type": "string"}}}},
         operation_id="user_send_confirmation_code",
     ),
     verify_confirmation_code=extend_schema(
         summary="Подтвердить email по коду",
-        description="Проверяет код подтверждения и устанавливает флаг is_verified.",
+        description="Проверяет код и активирует аккаунт.",
         tags=["USER"],
         request=VerifyEmailConfirmationSerializer,
-        responses={200: dict, 400: dict, 404: dict},
+        responses={200: {"type": "object", "properties": {"success": {"type": "string"}}}},
         operation_id="user_verify_confirmation_code",
     ),
 )
@@ -506,11 +570,12 @@ class UserEmailConfirmationViewSet(viewsets.GenericViewSet):
 
 @extend_schema_view(
     get=extend_schema(
-        summary="Получить статус подтверждения email",
-        description="Возвращает статус: отправлен ли код подтверждения и подтверждён ли email текущего пользователя.",
+        summary="Получить статус email",
+        description="Возвращает информацию о подтверждении email текущего пользователя.",
         tags=["USER"],
         responses=EmailStatusSerializer,
         operation_id="user_email_status",
+        # ✅ Нет параметров — просто GET
     )
 )
 class UserEmailStatusAPIView(APIView):

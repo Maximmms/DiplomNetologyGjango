@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "diplomnetologygjango"
 version = "0.1.0"
@@ -11,7 +15,6 @@ dependencies = [
     "asyncpg>=0.30.0",
     "psycopg[binary]>=3.2.11",
     "whitenoise>=6.11.0",
-    "granian>=2.5.5",
     "django-rest-passwordreset>=1.5.0",
     "python-dotenv>=1.0.0",
     "djangorestframework-simplejwt>=5.5.1",
@@ -19,6 +22,25 @@ dependencies = [
     "celery[redis]>=5.3.0",
     "django-celery-beat>=2.5.0",
     "drf-spectacular>=0.28.0",
+    "django-autoslug>=1.9.9",
+    "uvicorn>=0.38.0",
+    "redis>=4.5",
+]
+
+[tool.setuptools.packages.find]
+include = [
+    "backend",
+    "DiplomNetologyGjango",
+    "backend.*",
+    "DiplomNetologyGjango.*"
+]
+exclude = [
+    "app",
+    "logs",
+    "templates",
+    "staticfiles",
+    ".*",
+    "tests",
 ]
 
 [project.optional-dependencies]

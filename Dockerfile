@@ -1,6 +1,11 @@
 # Используем образ с uv и Python
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 
+# Установка системных зависимостей
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
+
 # Рабочая директория
 WORKDIR /app
 
@@ -13,20 +18,26 @@ ENV UV_COMPILE_BYTECODE=1 \
 # Копируем зависимости для их установки
 COPY pyproject.toml uv.lock ./
 
-# Устанавливаем зависимости, используя кэш
+# Очистка кэша
+RUN rm -rf /root/.cache/uv
+
+# Создаём виртуальное окружение и устанавливаем зависимости
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-install-project --no-dev
+    uv venv .venv --python python3.12 && \
+    uv pip install --upgrade pip && \
+    uv sync --frozen --no-dev
 
 # Копируем весь проект
 COPY . .
 
-# Устанавливаем проект
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev
+RUN mkdir -p /app/logs
 
-# Подготавливаем entrypoint.sh
-RUN sed -i 's/\r$//' ./entrypoint.sh && \
-    chmod +x ./entrypoint.sh
+RUN cp -r .venv /tmp/venv-final && \
+    rm -rf .venv && \
+    mv /tmp/venv-final .venv
+
+# Делаем entrypoint'ы исполняемыми
+RUN find . -name "entrypoint*.sh" -exec chmod +x {} \; 2>/dev/null || true
 
 # Точка входа
 ENTRYPOINT ["./entrypoint.sh"]

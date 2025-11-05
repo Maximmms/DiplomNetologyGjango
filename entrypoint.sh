@@ -6,7 +6,6 @@ echo "Applying migrations..."
 python manage.py makemigrations
 python manage.py migrate --noinput
 
-
 # Собираем статические файлы
 echo "Collecting static files..."
 python manage.py collectstatic --noinput --clear
@@ -62,4 +61,10 @@ except Exception as e:
 fi
 
 # Запуск приложения
-exec granian --interface asgi DiplomNetologyGjango.asgi:application --host 0.0.0.0 --port 8000
+echo "Starting uvicorn..."
+cd /app
+exec uvicorn DiplomNetologyGjango.asgi:application \
+    --host 0.0.0.0 \
+    --port 8000 \
+    --workers 4 \
+    --log-level info

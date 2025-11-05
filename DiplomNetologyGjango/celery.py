@@ -1,25 +1,21 @@
-import os
-from celery import Celery
-from django.conf import settings
+from __future__ import annotations
+
 import logging
+import os
 
-os.environ.setdefault(
-    'DJANGO_SETTINGS_MODULE',
-    'DiplomNetologyGjango.settings'
-)
+from celery import Celery
 
-app = Celery('DiplomNetologyGjango')
-app.config_from_object(
-    'django.conf:settings',
-    namespace='CELERY'
-)
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "DiplomNetologyGjango.settings")
+
+app = Celery("DiplomNetologyGjango")
+app.config_from_object("django.conf:settings", namespace="CELERY")
 app.autodiscover_tasks()
 
 # Настраиваем логирование для Celery
-logger = logging.getLogger('celery')
+logger = logging.getLogger("celery")
 if not logger.handlers:
     logger.setLevel(logging.INFO)
     ch = logging.StreamHandler()
-    formatter = logging.Formatter('[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s')
+    formatter = logging.Formatter("[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s")
     ch.setFormatter(formatter)
     logger.addHandler(ch)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from backend.models import (
@@ -200,9 +201,11 @@ class CategorySerializer(serializers.ModelSerializer):
 
 
 class ShopListSerializer(serializers.ModelSerializer):
-    owner = serializers.SerializerMethodField()
-    categories_count = serializers.SerializerMethodField()
-    state = serializers.SerializerMethodField()
+    owner = extend_schema_field(serializers.CharField)(
+        serializers.SerializerMethodField()
+    )
+    categories_count = extend_schema_field(serializers.IntegerField)(serializers.SerializerMethodField())
+    state = extend_schema_field(serializers.CharField)(serializers.SerializerMethodField())
 
     class Meta:
         model = Shop
@@ -215,17 +218,17 @@ class ShopListSerializer(serializers.ModelSerializer):
             "categories_count",
         )
 
-        def get_owner(self, obj):
-            return (
-                f"{obj.user.first_name} {obj.user.last_name}".strip()
-                or obj.user.username
-            )
+    def get_owner(self, obj):
+        return (
+            f"{obj.user.first_name} {obj.user.last_name}".strip()
+            or obj.user.username
+        )
 
-        def get_state(self, obj):
-            return "Принимает заказы" if obj.state else "Не принимает заказы"
+    def get_state(self, obj):
+        return "Принимает заказы" if obj.state else "Не принимает заказы"
 
-        def get_categories_count(self, obj):
-            return obj.categories.count()
+    def get_categories_count(self, obj):
+        return obj.categories.count()
 
 
 class ShopDetailSerializer(serializers.ModelSerializer):
@@ -257,19 +260,10 @@ class ShopDetailSerializer(serializers.ModelSerializer):
 
 
 class ProductInfoSerializer(serializers.ModelSerializer):
-    price = serializers.DecimalField(
-        max_digits=10,
-        decimal_places=2
+    unit_of_measure_display = serializers.CharField(
+        source="get_unit_of_measure_display",
+        read_only=True
     )
-    price_rrc = serializers.DecimalField(
-        max_digits=10,
-        decimal_places=2
-    )
-    quantity = serializers.DecimalField(
-        max_digits=10,
-        decimal_places=2
-    )
-    unit_of_measure = serializers.CharField()
     product_name = serializers.CharField(
         source="product.name",
         read_only=True
@@ -291,14 +285,22 @@ class ProductInfoSerializer(serializers.ModelSerializer):
             "price_rrc",
             "quantity",
             "unit_of_measure",
+            "unit_of_measure_display",
         )
+
+        extra_kwargs = {
+            "price": {"coerce_to_string": True},
+            "price_rrc": {"coerce_to_string": True},
+            "quantity": {"coerce_to_string": True},
+            "unit_of_measure": {"read_only": True},
+        }
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
-        # Преобразуем Decimal в float для лучшей совместимости с JSON
-        data["price"] = float(data["price"])
-        data["price_rrc"] = float(data["price_rrc"])
-        data["quantity"] = float(data["quantity"])
+        if not data.get("product_name"):
+            data["product_name"] = "Не указано"
+        if not data.get("category_name"):
+            data["category_name"] = "Без категории"
         return data
 
 

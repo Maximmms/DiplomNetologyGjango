@@ -1,11 +1,35 @@
-.env
-*.pyc
-__pycache__
-*.log
-.git
+.venv
 venv
-node_modules
-media
-static
-*.sqlite3
-.env.local
+env
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info
+.installed.cfg
+*.egg
+
+# Логи
+*.log
+logs/
+*.txt
+
+# Статика
+staticfiles/
+media/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ОС
+.DS_Store
+Thumbs.db
+
+# Docker
+docker-compose.override.yml

@@ -22,7 +22,7 @@ def delete_expired_tokens():
 
     jwt_logger.info(f"Удалено {count_deleted} истёкших токенов")
 
-@shared_task
+@shared_task(bind=True)
 def send_email_confirmation(self, email: str, code: str):
     from backend.loggers.mail_send_logger import logger as email_logger
     """

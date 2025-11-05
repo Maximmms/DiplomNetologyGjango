@@ -146,9 +146,9 @@ STATIC_URL = "/static/"
 
 STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
 
-STATICFILES_DIRS = (
+STATICFILES_DIRS = [
     os.path.join(BASE_DIR, "static"),
-)
+]
 
 # Настройки электронной почты (SMTP)
 EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
@@ -174,8 +174,8 @@ REST_FRAMEWORK = {
     ),
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "EXCEPTION_HANDLER": "backend.utils.exception_handler.custom_exception_handler",
-    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
-    'PAGE_SIZE': 20
+    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
+    "PAGE_SIZE": 20
 }
 
 SIMPLE_JWT = {
@@ -222,8 +222,7 @@ LOGGING = {
             "class": "logging.FileHandler",
             "filename": os.path.join(BASE_DIR, "logs", "celery.log"),
             "formatter": "standard",
-        }
-    },
+        },
     "loggers": {
         "celery": {
             "handlers": ["console", "celery_file"],
@@ -238,7 +237,7 @@ LOGGING = {
         "backend": {
             "handlers": ["console", "file"],
             "level": "INFO",
-            "propagate": False,
+            "propagate": True,
         },
         "jwt_tokens": {
             "handlers": ["console", "jwt_tokens_file"],
@@ -246,7 +245,7 @@ LOGGING = {
             "propagate": True,
         },
     },
-}
+}}
 
 CELERY_BROKER_URL = "redis://localhost:6379/0"
 CELERY_RESULT_BACKEND = "redis://localhost:6379/0"
@@ -260,18 +259,38 @@ CELERY_BEAT_SCHEDULE = {
 
 SPECTACULAR_SETTINGS = {
     "TITLE": "Backend API",
-    "DESCRIPTION": "API для интернет-магазина: управление пользователями, заказами, магазинами",
+    "DESCRIPTION": "Документация для API интернет-магазина",
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
-    "TAGS": [
-        {
-            "name": "USER",
-            "description": "Работа с пользователями: регистрация, авторизация, профиль, контакты.",
+    "SWAGGER_UI_SETTINGS": {
+        "deepLinking": True,
+        "persistAuthorization": True,
+        "displayOperationId": True,
+        "filter": True,
+        "tagsSorter": "alpha",
+        "operationsSorter": "alpha",
+    },
+    "REDOC_DIST": "lite",
+    "REDOC_UI_SETTINGS": {
+        "sortProps": True,
+        "expandResponses": "200,201,400,401,403",
+        "requiredPropsFirst": True,
+        "hideLoading": True,
+        "showExtensions": True,
+        "theme": {
+            "spacing": {
+                "unit": "1rem"
+            }
         },
-    ],
-    "COMPONENT_SPLIT_REQUEST": True,
-    "SORT_OPERATIONS": False,
-    "OPERATION_ID_GENERATOR": lambda method, path, operation: operation["operationId"],
+        "menu": {
+            "sortBy": "title"
+        }
+    },
+    "SORT_OPERATION_KEYS": False,
+    "SORT_TAGS": True,
 }
+
+DATA_UPLOAD_MAX_MEMORY_SIZE = 10485760
+FILE_UPLOAD_MAX_MEMORY_SIZE = 10485760
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
