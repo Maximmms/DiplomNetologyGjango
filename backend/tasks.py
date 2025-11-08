@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import time, timedelta
 
 from celery import shared_task
 from django.core.mail import send_mail as django_send_mail
@@ -9,7 +9,6 @@ from django_celery_beat.models import IntervalSchedule, PeriodicTask
 from rest_framework_simplejwt.token_blacklist.models import OutstandingToken
 
 from DiplomNetologyGjango import settings
-
 
 @shared_task
 def delete_expired_tokens():

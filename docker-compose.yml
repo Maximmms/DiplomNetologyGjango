@@ -3,12 +3,15 @@ services:
     image: postgres:14.3-alpine3.15
     ports:
       - "5431:5432"
+    env_file:
+      - .env
     environment:
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DB: ${DB_NAME}
     volumes:
       - postgres-data:/var/lib/postgresql/data
+      - ./logs:/var/log/postgresql
     healthcheck:
       test: ["CMD-SHELL", "sh -c 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}'"]
       interval: 10s
@@ -16,7 +19,7 @@ services:
       retries: 5
 
   redis:
-    container_name: diplom-redis
+    container_name: redis
     image: redis:alpine
     ports:
       - "6379:6379"
@@ -24,30 +27,16 @@ services:
       - redis-data:/data
 
   app:
-    container_name: diplom-app
+    container_name: app
     build: .
-    entrypoint: ./entrypoint.sh
+    command: uvicorn DiplomNetologyGjango.asgi:application --host 0.0.0.0 --port 8000 --workers 1
     ports:
       - "8000:8000"
+    env_file:
+      - .env
     environment:
-      DB_USER: ${DB_USER}
-      DB_PASSWORD: ${DB_PASSWORD}
-      DB_NAME: ${DB_NAME}
-      DB_HOST: ${DB_HOST}
-      DB_PORT: ${DB_PORT}
-      DJANGO_SUPERUSER_USERNAME: ${DJANGO_SUPERUSER_USERNAME}
-      DJANGO_SUPERUSER_PASSWORD: ${DJANGO_SUPERUSER_PASSWORD}
-      DJANGO_SUPERUSER_EMAIL: ${DJANGO_SUPERUSER_EMAIL}
-      DJANGO_SETTINGS_MODULE: DiplomNetologyGjango.settings
-      DEFAULT_FROM_EMAIL: ${DEFAULT_EMAIL}
-      EMAIL_HOST: ${EMAIL_HOST}
-      EMAIL_PORT: ${EMAIL_PORT}
-      EMAIL_USE_TLS: ${EMAIL_USE_TLS}
-      EMAIL_HOST_USER: ${EMAIL_HOST_USER}
-      EMAIL_HOST_PASSWORD: ${EMAIL_HOST_PASSWORD}
-      DJANGO_DEBUG: "True"
-      CELERY_BROKER_URL: redis://redis:6379/0
-      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      - DJANGO_SETTINGS_MODULE=DiplomNetologyGjango.settings
+      - RUN_MIGRATIONS=1
     depends_on:
       db:
         condition: service_healthy
@@ -57,61 +46,37 @@ services:
       - ./logs:/logs
 
   celery-worker:
-    container_name: diplom-celery-worker
+    container_name: celery-worker
     build: .
-    entrypoint: ./entrypoint-celery-worker.sh
-    volumes:
-      - .:/app
-      - ./logs:/logs
+    command: celery -A DiplomNetologyGjango worker --loglevel=INFO --logfile=/logs/celery.log
+    env_file:
+      - .env
     environment:
-      DB_USER: ${DB_USER}
-      DB_PASSWORD: ${DB_PASSWORD}
-      DB_NAME: ${DB_NAME}
-      DB_HOST: ${DB_HOST}
-      DB_PORT: ${DB_PORT}
-      DEFAULT_FROM_EMAIL: ${DEFAULT_EMAIL}
-      EMAIL_HOST: ${EMAIL_HOST}
-      EMAIL_PORT: ${EMAIL_PORT}
-      EMAIL_USE_TLS: ${EMAIL_USE_TLS}
-      EMAIL_HOST_USER: ${EMAIL_HOST_USER}
-      EMAIL_HOST_PASSWORD: ${EMAIL_HOST_PASSWORD}
-      DJANGO_SETTINGS_MODULE: DiplomNetologyGjango.settings
-      CELERY_BROKER_URL: redis://redis:6379/0
-      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      - RUN_MIGRATIONS=0
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_started
+    volumes:
+      - ./logs:/logs
 
   celery-beat:
-    container_name: diplom-celery-beat
+    container_name: celery-beat
     build: .
-    entrypoint: ./entrypoint-celery-beat.sh
-    volumes:
-      - .:/app
-      - ./logs:/logs
+    command: celery -A DiplomNetologyGjango beat --loglevel=INFO --scheduler django_celery_beat.schedulers.DatabaseScheduler --logfile=/logs/celery-beat.log
+    env_file:
+      - .env
     environment:
-      DB_USER: ${DB_USER}
-      DB_PASSWORD: ${DB_PASSWORD}
-      DB_NAME: ${DB_NAME}
-      DB_HOST: ${DB_HOST}
-      DB_PORT: ${DB_PORT}
-      DEFAULT_FROM_EMAIL: ${DEFAULT_EMAIL}
-      EMAIL_HOST: ${EMAIL_HOST}
-      EMAIL_PORT: ${EMAIL_PORT}
-      EMAIL_USE_TLS: ${EMAIL_USE_TLS}
-      EMAIL_HOST_USER: ${EMAIL_HOST_USER}
-      EMAIL_HOST_PASSWORD: ${EMAIL_HOST_PASSWORD}
-      DJANGO_SETTINGS_MODULE: DiplomNetologyGjango.settings
-      CELERY_BROKER_URL: redis://redis:6379/0
-      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      - RUN_MIGRATIONS=0
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_started
-
+    volumes:
+      - ./logs:/logs
+    restart: always
 
 volumes:
   postgres-data:

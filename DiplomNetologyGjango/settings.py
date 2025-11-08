@@ -67,11 +67,7 @@ MIDDLEWARE = [
 ROOT_URLCONF = "DiplomNetologyGjango.urls"
 
 AUTH_USER_MODEL = "backend.User"
-
-# Добавьте эти настройки для разрешения конфликта
-AUTHENTICATION_BACKENDS = [
-    "django.contrib.auth.backends.ModelBackend",
-]
+AUTHENTICATION_BACKENDS = ["django.contrib.auth.backends.ModelBackend"]
 
 TEMPLATES = [
     {
@@ -97,11 +93,11 @@ WSGI_APPLICATION = "DiplomNetologyGjango.wsgi.application"
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql_psycopg2",
-        "NAME": os.getenv("DB_NAME", "postgres"),
-        "USER": os.getenv("DB_USER", "postgres"),
-        "PASSWORD": os.getenv("DB_PASSWORD", "postgres"),
-        "HOST": os.getenv("DB_HOST", "db"),
-        "PORT": os.getenv("DB_PORT", "5432"),
+        "NAME": os.getenv("DB_NAME"),
+        "USER": os.getenv("DB_USER"),
+        "PASSWORD": os.getenv("DB_PASSWORD"),
+        "HOST": os.getenv("DB_HOST"),
+        "PORT": os.getenv("DB_PORT"),
         "OPTIONS": {
             "client_encoding": "utf8",
         },
@@ -131,11 +127,8 @@ AUTH_PASSWORD_VALIDATORS = [
 # https://docs.djangoproject.com/en/5.2/topics/i18n/
 
 LANGUAGE_CODE = "en-us"
-
 TIME_ZONE = "UTC"
-
 USE_I18N = True
-
 USE_TZ = True
 
 
@@ -143,12 +136,10 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = "/static/"
-
 STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
-
-STATICFILES_DIRS = [
+STATICFILES_DIRS = (
     os.path.join(BASE_DIR, "static"),
-]
+)
 
 # Настройки электронной почты (SMTP)
 EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
@@ -174,8 +165,6 @@ REST_FRAMEWORK = {
     ),
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "EXCEPTION_HANDLER": "backend.utils.exception_handler.custom_exception_handler",
-    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
-    "PAGE_SIZE": 20
 }
 
 SIMPLE_JWT = {
@@ -184,6 +173,8 @@ SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(days=1),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=2),
 }
+
+LOGS_DIR = "/logs"
 
 LOGGING = {
     "version": 1,
@@ -202,27 +193,28 @@ LOGGING = {
         "jwt_tokens_file": {
             "level": "INFO",
             "class": "logging.FileHandler",
-            "filename": os.path.join(BASE_DIR, "logs", "jwt_tokens.log"),
+            "filename": os.path.join(LOGS_DIR, "jwt_tokens.log"),
             "formatter": "standard",
         },
         "file": {
             "level": "INFO",
             "class": "logging.FileHandler",
-            "filename": os.path.join(BASE_DIR, "logs", "django.log"),
+            "filename": os.path.join(LOGS_DIR, "django.log"),
             "formatter": "standard",
         },
         "send_email_file": {
             "level": "INFO",
             "class": "logging.FileHandler",
-            "filename": os.path.join(BASE_DIR, "logs", "send_email.log"),
+            "filename": os.path.join(LOGS_DIR, "send_email.log"),
             "formatter": "standard",
         },
         "celery_file": {
             "level": "INFO",
             "class": "logging.FileHandler",
-            "filename": os.path.join(BASE_DIR, "logs", "celery.log"),
+            "filename": os.path.join(LOGS_DIR, "celery.log"),
             "formatter": "standard",
-        },
+        }
+    },
     "loggers": {
         "celery": {
             "handlers": ["console", "celery_file"],
@@ -237,7 +229,7 @@ LOGGING = {
         "backend": {
             "handlers": ["console", "file"],
             "level": "INFO",
-            "propagate": True,
+            "propagate": False,
         },
         "jwt_tokens": {
             "handlers": ["console", "jwt_tokens_file"],
@@ -245,52 +237,32 @@ LOGGING = {
             "propagate": True,
         },
     },
-}}
+}
 
-CELERY_BROKER_URL = "redis://localhost:6379/0"
-CELERY_RESULT_BACKEND = "redis://localhost:6379/0"
+CELERY_BROKER_URL = "redis://redis:6379/0"
+CELERY_RESULT_BACKEND = "redis://redis:6379/0"
 CELERY_TIMEZONE = "Europe/Moscow"
 CELERY_BEAT_SCHEDULE = {
     "delete-expired-tokens-every-day": {
-        "task": "your_app.tasks.delete_expired_tokens",
+        "task": "backend.tasks.delete_expired_tokens",
         "schedule": 86400,  # 24 часа
     },
 }
 
 SPECTACULAR_SETTINGS = {
     "TITLE": "Backend API",
-    "DESCRIPTION": "Документация для API интернет-магазина",
+    "DESCRIPTION": "API для интернет-магазина: управление пользователями, заказами, магазинами",
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
-    "SWAGGER_UI_SETTINGS": {
-        "deepLinking": True,
-        "persistAuthorization": True,
-        "displayOperationId": True,
-        "filter": True,
-        "tagsSorter": "alpha",
-        "operationsSorter": "alpha",
-    },
-    "REDOC_DIST": "lite",
-    "REDOC_UI_SETTINGS": {
-        "sortProps": True,
-        "expandResponses": "200,201,400,401,403",
-        "requiredPropsFirst": True,
-        "hideLoading": True,
-        "showExtensions": True,
-        "theme": {
-            "spacing": {
-                "unit": "1rem"
-            }
+    "TAGS": [
+        {
+            "name": "USER",
+            "description": "Работа с пользователями: регистрация, авторизация, профиль, контакты.",
         },
-        "menu": {
-            "sortBy": "title"
-        }
-    },
-    "SORT_OPERATION_KEYS": False,
-    "SORT_TAGS": True,
+    ],
+    "COMPONENT_SPLIT_REQUEST": True,
+    "SORT_OPERATIONS": False,
+    "OPERATION_ID_GENERATOR": lambda method, path, operation: operation["operationId"],
 }
-
-DATA_UPLOAD_MAX_MEMORY_SIZE = 10485760
-FILE_UPLOAD_MAX_MEMORY_SIZE = 10485760
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"

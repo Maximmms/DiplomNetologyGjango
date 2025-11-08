@@ -121,6 +121,7 @@ class UserManager(BaseUserManager):
         """
         extra_fields.setdefault("is_staff", True)
         extra_fields.setdefault("is_superuser", True)
+        extra_fields.setdefault("is_active", True)
 
         if not (
             extra_fields.get("is_staff", False)
@@ -130,13 +131,18 @@ class UserManager(BaseUserManager):
 
         return self._create_user(username, email, password, **extra_fields)
 
+    def get_by_natural_key(self, email):
+        """
+        Позволяет аутентифицироваться по email.
+        Вызывается при authenticate(email='...')
+        """
+        return self.get(email=email)
+
 
 class User(AbstractUser, PermissionsMixin):
     """
     Стандартная модель пользователей
     """
-
-    REQUIRED_FIELDS = []
     objects = UserManager()
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = ("username",)

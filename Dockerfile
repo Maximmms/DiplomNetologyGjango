@@ -41,3 +41,4 @@ RUN find . -name "entrypoint*.sh" -exec chmod +x {} \; 2>/dev/null || true
 
 # Точка входа
 ENTRYPOINT ["./entrypoint.sh"]
+CMD ["uvicorn", "DiplomNetologyGjango.asgi:application", "--host", "0.0.0.0", "--port", "8000"]
