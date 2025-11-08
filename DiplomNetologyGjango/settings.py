@@ -143,12 +143,12 @@ STATICFILES_DIRS = (
 
 # Настройки электронной почты (SMTP)
 EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
-DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL")
-EMAIL_HOST = os.getenv("EMAIL_HOST")
-EMAIL_PORT = os.getenv("EMAIL_PORT")
-EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS")
-EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER")
-EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "no-reply@example.com")
+EMAIL_HOST = os.getenv("EMAIL_HOST", "mailhog")
+EMAIL_PORT = int(os.getenv("EMAIL_PORT", 1025))
+EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "False").lower() == "true"
+# EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER")
+# EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
@@ -165,6 +165,11 @@ REST_FRAMEWORK = {
     ),
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "EXCEPTION_HANDLER": "backend.utils.exception_handler.custom_exception_handler",
+    "DEFAULT_THROTTLE_RATES": {
+        "email_send": "3/hour",   # максимум 3 письма в час с одного аккаунта
+        "login": "5/minute",      # максимум 5 попыток в минуту
+        "resend_code": "3/hour",  # максимум 3 письма в час с одного аккаунта
+    },
 }
 
 SIMPLE_JWT = {
@@ -242,12 +247,7 @@ LOGGING = {
 CELERY_BROKER_URL = "redis://redis:6379/0"
 CELERY_RESULT_BACKEND = "redis://redis:6379/0"
 CELERY_TIMEZONE = "Europe/Moscow"
-CELERY_BEAT_SCHEDULE = {
-    "delete-expired-tokens-every-day": {
-        "task": "backend.tasks.delete_expired_tokens",
-        "schedule": 86400,  # 24 часа
-    },
-}
+CELERY_BEAT_SCHEDULE = {}
 
 SPECTACULAR_SETTINGS = {
     "TITLE": "Backend API",

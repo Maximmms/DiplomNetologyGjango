@@ -11,8 +11,8 @@ def validate_phone_number(value: str) -> str:
     if len(digits) != 11:
         raise serializers.ValidationError("Неверный формат номера. Пример: +7 (999) 123-45-67")
 
-    if not digits.startswith("7"):
-        raise serializers.ValidationError("Номер должен быть в формате РФ (начинаться с 7)")
+    if not digits.startswith("7") and not digits.startswith("8"):
+        raise serializers.ValidationError("Номер должен быть в формате РФ (начинаться с 7 или 8")
 
     return digits
 

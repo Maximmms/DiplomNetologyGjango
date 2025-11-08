@@ -6,12 +6,12 @@ from rest_framework.routers import SimpleRouter
 from backend.views.user_views import (
     UserChangePasswordViewSet,
     UserContactViewSet,
-    UserEmailConfirmationViewSet,
-    UserEmailStatusAPIView,
     UserLoginView,
     UserLogoutViewSet,
     UserProfileViewSet,
     UserRegisterViewSet,
+    UserSendEmailConfirmationView,
+    UserVerifyEmailConfirmationView,
 )
 
 router = SimpleRouter()
@@ -21,7 +21,7 @@ def register_user_urls(router):
     router.register(r"logout", UserLogoutViewSet, basename="logout")
     router.register(r"password", UserChangePasswordViewSet, basename="password")
     router.register(r"profile", UserProfileViewSet, basename="profile")
-    router.register(r"email", UserEmailConfirmationViewSet, basename="email-confirm")
+
 
 register_user_urls(router)
 
@@ -34,7 +34,8 @@ urlpatterns = [
         ),
         name="contact-detail",
     ),
-    path("email/status/", UserEmailStatusAPIView.as_view(), name="user_email_status"),
+    path("email/send/", UserSendEmailConfirmationView.as_view(), name="user_email_send"),
+    path("email/verify/", UserVerifyEmailConfirmationView.as_view(), name="user_email_verify"),
     path("login/", UserLoginView.as_view(), name="login"),
 ]
 

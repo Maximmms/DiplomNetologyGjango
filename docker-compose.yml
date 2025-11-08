@@ -42,6 +42,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
+      mailhog:
+        condition: service_started
     volumes:
       - ./logs:/logs
 
@@ -57,6 +59,8 @@ services:
       db:
         condition: service_healthy
       redis:
+        condition: service_started
+      mailhog:
         condition: service_started
     volumes:
       - ./logs:/logs
@@ -74,9 +78,26 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
+      mailhog:
+        condition: service_started
     volumes:
       - ./logs:/logs
     restart: always
+
+  mailhog:
+    container_name: mailhog
+    image: mailhog/mailhog
+    ports:
+      - "8025:8025"  # Web-интерфейс для просмотра писем
+      - "1025:1025"  # SMTP-сервер (для отправки писем из приложения)
+    environment:
+      - MH_API_BIND_ADDR=0.0.0.0:8025
+      - MH_UI_BIND_ADDR=0.0.0.0:8025
+    healthcheck:
+      test: [ "CMD", "wget", "--quiet", "--spider", "http://localhost:8025" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
 volumes:
   postgres-data:

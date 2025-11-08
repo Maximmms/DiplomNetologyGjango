@@ -3,10 +3,12 @@ from __future__ import annotations
 from datetime import timedelta
 
 from django.contrib.auth import get_user_model, update_session_auth_hash
+from django.core.exceptions import ValidationError
+from django.core.validators import validate_email
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema, extend_schema_view, inline_serializer
 from rest_framework import mixins, serializers, status, viewsets
-from rest_framework.decorators import action
+from rest_framework.decorators import action, throttle_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -25,13 +27,22 @@ from backend.serializers import (
 from backend.tasks import send_email_confirmation
 from backend.utils.generators import generate_code
 from backend.utils.normalizers import normalize_email
+from backend.utils.throttling import (
+    LoginThrottle,
+)
 
 User = get_user_model()
 
 @extend_schema_view(
     create=extend_schema(
         summary="Регистрация нового пользователя",
-        description="Создаёт нового пользователя и возвращает JWT-токены (`access` и `refresh`).",
+        description="""
+Регистрирует нового пользователя. 
+- **Телефонный номер** должен начинаться с `7` или `8` (формат России).
+- Поле `type` может принимать одно из двух значений: `shop` или `buyer`.
+    - `shop` — пользователь представляет магазин.
+    - `buyer` — обычный покупатель.
+        """.strip(),
         tags=["USER"],
         request=UserSerializer,
         responses={
@@ -181,6 +192,7 @@ class UserLoginView(APIView):
         operation_id="user_logout",
     )
 )
+@throttle_classes([LoginThrottle])
 class UserLogoutViewSet(viewsets.GenericViewSet, mixins.CreateModelMixin):
     permission_classes = [IsAuthenticated]
     queryset = User.objects.all()
@@ -265,7 +277,10 @@ class UserChangePasswordViewSet(viewsets.GenericViewSet):
     ),
     create=extend_schema(
         summary="Добавить новый адрес",
-        description="Создаёт новый адрес доставки.",
+        description="""
+Создаёт новый адрес доставки.
+- Поле `phone` (если передаётся) должно быть в формате России — начинаться с `7` или `8`.
+        """.strip(),
         tags=["USER"],
         request=ContactSerializer,
         responses={201: ContactSerializer, 400: dict},
@@ -273,7 +288,10 @@ class UserChangePasswordViewSet(viewsets.GenericViewSet):
     ),
     update=extend_schema(
         summary="Полное обновление адреса",
-        description="Полностью обновляет указанный адрес.",
+        description="""
+Полностью обновляет указанный адрес.
+- Номер телефона должен начинаться с `7` или `8`.
+        """.strip(),
         tags=["USER"],
         request=ContactSerializer,
         responses={200: ContactSerializer, 400: dict, 404: dict},
@@ -281,7 +299,10 @@ class UserChangePasswordViewSet(viewsets.GenericViewSet):
     ),
     partial_update=extend_schema(
         summary="Частичное обновление адреса",
-        description="Обновляет только указанные поля адреса.",
+        description="""
+Обновляет только указанные поля адреса.
+- Если обновляется `phone`, он должен начинаться с `7` или `8`.
+        """.strip(),
         tags=["USER"],
         request=ContactSerializer,
         responses={200: ContactSerializer, 400: dict, 404: dict},
@@ -422,14 +443,25 @@ class UserContactViewSet(viewsets.GenericViewSet,
 @extend_schema_view(
     retrieve=extend_schema(
         summary="Получить профиль",
-        description="Возвращает основную информацию о текущем пользователе.",
+        description="""
+Возвращает основную информацию о текущем пользователе.
+- **Телефонный номер** должен начинаться с `7` или `8` (формат России).
+- Поле `type` отображается как текст: `shop` или `buyer`.
+    - `shop` — пользователь представляет магазин.
+    - `buyer` — обычный покупатель.
+        """.strip(),
         tags=["USER"],
         responses=UserSerializer,
         operation_id="user_profile_retrieve",
     ),
     partial_update=extend_schema(
         summary="Частично обновить профиль",
-        description="Обновляет указанные поля профиля (например, имя, телефон и т.п.).",
+        description="""
+Обновляет указанные поля профиля.
+- **Телефонный номер** должен начинаться с `7` или `8` (формат России).
+- Поле `type` может быть изменено только при наличии прав (не досупно для обычного пользователя).
+    Допустимые значения: `shop`, `buyer`.
+        """.strip(),
         tags=["USER"],
         request=UserSerializer,
         responses={200: UserSerializer, 400: dict},
@@ -463,7 +495,16 @@ class UserProfileViewSet(viewsets.GenericViewSet, mixins.RetrieveModelMixin, mix
 
     def partial_update(self, request, *args, **kwargs):
         instance = self.get_object()
-        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        data = request.data.copy()
+
+        # Защита поля `type`: только администратор может его изменить
+        if "type" in data and not request.user.is_staff and not request.user.is_superuser:
+            return Response(
+                {"error": "Изменение поля 'type' доступно только администраторам."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        serializer = self.get_serializer(instance, data=data, partial=True)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -471,80 +512,129 @@ class UserProfileViewSet(viewsets.GenericViewSet, mixins.RetrieveModelMixin, mix
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
-@extend_schema_view(
-    send_confirmation_code=extend_schema(
+class UserSendEmailConfirmationView(APIView):
+    """
+    Отправка кода подтверждения на email.
+    Доступно без авторизации.
+    """
+    permission_classes = [AllowAny]
+
+    @extend_schema(
         summary="Отправить код подтверждения email",
-        description="Отправляет 12-значный код на email пользователя для подтверждения аккаунта.",
+        description="""
+Отправляет 12-значный код на email для подтверждения аккаунта.
+- Доступно без авторизации.
+- Письмо отправляется от имени администратора сайта.
+- Повторная отправка ограничена (3 раза в час).
+- Работает только для зарегистрированных пользователей.
+        """.strip(),
         tags=["USER"],
         request=SendEmailConfirmationSerializer,
-        responses={200: {"type": "object", "properties": {"success": {"type": "string"}}}},
+        responses={
+            200: {"type": "object", "properties": {"success": {"type": "string"}}},
+            400: {"type": "object", "properties": {"error": {"type": "string"}}},
+            404: {"type": "object", "properties": {"error": {"type": "string"}}}
+        },
         operation_id="user_send_confirmation_code",
-    ),
-    verify_confirmation_code=extend_schema(
-        summary="Подтвердить email по коду",
-        description="Проверяет код и активирует аккаунт.",
-        tags=["USER"],
-        request=VerifyEmailConfirmationSerializer,
-        responses={200: {"type": "object", "properties": {"success": {"type": "string"}}}},
-        operation_id="user_verify_confirmation_code",
-    ),
-)
-class UserEmailConfirmationViewSet(viewsets.GenericViewSet):
-    permission_classes = [IsAuthenticated]
-    serializer_class = SendEmailConfirmationSerializer
-
-    @action(detail=False, methods=["post"], url_path="send", url_name="comfirm-send")
-    def send_confirmation_code(self, request):
-        logger.info(f"Запрос на отправку кода подтверждения от пользователя {request.user.id}")
-        serializer = self.get_serializer(data=request.data)
+    )
+    def post(self, request):
+        serializer = SendEmailConfirmationSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         email = serializer.validated_data["email"]
+        normalized_email = email.strip().lower()
 
-        if request.user.email != normalize_email(email):
+        try:
+            validate_email(normalized_email)
+        except ValidationError:
             return Response(
-                {"error": "Email не совпадает с вашим аккаунтом."},
+                {"error": "Некорректный формат email."},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Генерируем 12 значный код
-        code = generate_code()
+        try:
+            user = User.objects.get(email=normalized_email)
+        except User.DoesNotExist:
+            logger.warning(f"Попытка подтвердить email для несуществующего пользователя: {normalized_email}")
+            return Response(
+                {"error": "Пользователь с таким email не найден."},
+                status=status.HTTP_404_NOT_FOUND
+            )
 
-        # Удаляем старые коды
-        EmailConfirmation.objects.filter(user=request.user).delete()
+        code = generate_code(12)
+        EmailConfirmation.objects.filter(user=user).delete()
+        EmailConfirmation.objects.create(user=user, code=code)
 
-        # Создаем новый код
-        EmailConfirmation.objects.create(user=request.user, code=code)
+        send_email_confirmation.delay(email=normalized_email, code=code)
 
-        #Отправка письма (Используем celery)
-        send_email_confirmation.delay(email=email, code=code)
+        logger.info(f"Код подтверждения отправлен на email: {normalized_email}")
 
         return Response(
-            {"success": f"Код отправлен на {email}"},
-            status=status.HTTP_200_OK
+            {"success": f"Код отправлен на {normalized_email}"},
+            status=status.HTTP_200_OK,
         )
 
-    @action(detail=False, methods=["post"], url_path="verify", url_name="comfirm-verify")
-    def verify_confirmation_code(self, request):
+
+class UserVerifyEmailConfirmationView(APIView):
+    """
+    Подтверждение email по коду.
+    Доступно без авторизации — для активации нового аккаунта.
+    """
+
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        summary="Подтвердить email по коду",
+        description="""
+    Позволяет пользователю подтвердить email с помощью 12-значного кода.
+    - **Не требует авторизации** — используется при активации аккаунта.
+    - Код действует 10 минут.
+    - После подтверждения аккаунт активируется.
+            """.strip(),
+        tags=["USER"],
+        request=VerifyEmailConfirmationSerializer,
+        responses={
+            200: {"type": "object", "properties": {"success": {"type": "string"}}},
+            400: {"type": "object", "properties": {"error": {"type": "string"}}},
+            404: {"type": "object", "properties": {"error": {"type": "string"}}},
+        },
+        operation_id="user_verify_confirmation_code",
+    )
+    def post(self, request):
         serializer = VerifyEmailConfirmationSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+        email = serializer.validated_data["email"]
         code = serializer.validated_data["code"]
+        normalized_email = email.strip().lower()
 
         try:
-            confirmation = EmailConfirmation.objects.get(user=request.user)
-            logger.info(f"Код сгенерирован для пользователя {request.user.id}")
+            validate_email(normalized_email)
+        except ValidationError:
+            return Response(
+                {"error": "Некорректный формат email."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            user = User.objects.get(email=normalized_email)
+        except User.DoesNotExist:
+            return Response(
+                {"error": "Пользователь не найден."}, status=status.HTTP_404_NOT_FOUND
+            )
+
+        try:
+            confirmation = EmailConfirmation.objects.get(user=user)
         except EmailConfirmation.DoesNotExist:
             return Response(
-                {"error": "Код не найден. Сначала отправьте код."},
+                {"error": "Код не найден. Отправьте код снова."},
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        # Проверяе скрок действия кода (10 минут)
         if timezone.now() - confirmation.created_at > timedelta(minutes=10):
-            confirmation.delete() # Удаляем код, если он просрочен
+            confirmation.delete()
             return Response(
                 {"error": "Код истёк. Запросите новый."},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -552,55 +642,19 @@ class UserEmailConfirmationViewSet(viewsets.GenericViewSet):
 
         if confirmation.code != code:
             return Response(
-                {"error": "Неверный код."}, status=status.HTTP_400_BAD_REQUEST
+                {"error": "Неверный код."},
+                status=status.HTTP_400_BAD_REQUEST
             )
 
+        # Активируем пользователя
         confirmation.is_verified = True
         confirmation.save()
 
-        request.user.is_email_verified = True # Устанавливаем флаг подтверждения (is_email_verified)
-        request.user.is_active = True # Активируем аккаунт
-        request.user.save()
+        user.is_email_verified = True
+        user.is_active = True
+        user.save()
 
         return Response(
-            {"success": "Email успешно подтверждён!"},
+            {"success": "Email успешно подтверждён! Аккаунт активирован."},
             status=status.HTTP_200_OK
         )
-
-
-@extend_schema_view(
-    get=extend_schema(
-        summary="Получить статус email",
-        description="Возвращает информацию о подтверждении email текущего пользователя.",
-        tags=["USER"],
-        responses=EmailStatusSerializer,
-        operation_id="user_email_status",
-        # ✅ Нет параметров — просто GET
-    )
-)
-class UserEmailStatusAPIView(APIView):
-    """
-    Возвращает статус подтверждения email.
-    """
-    permission_classes = [IsAuthenticated]
-    serializer_class = EmailStatusSerializer
-
-    def get(self, request):
-        user = request.user
-        try:
-            confirmation = EmailConfirmation.objects.get(user=user)
-            data = {
-                "email": user.email,
-                "sent": True,
-                "created_at": confirmation.created_at,
-                "is_verified": confirmation.is_verified,
-            }
-        except EmailConfirmation.DoesNotExist:
-            data = {
-                "email": user.email,
-                "sent": False,
-                "created_at": None,
-                "is_verified": getattr(user, "is_email_verified", False),
-            }
-
-        return Response(data, status=status.HTTP_200_OK)

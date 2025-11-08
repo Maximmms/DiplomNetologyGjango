@@ -86,6 +86,7 @@ class UserSerializer(serializers.ModelSerializer):
             "company",
             "position",
             "contacts",
+            "type"
         )
         model = User
         read_only_fields = [
@@ -174,10 +175,13 @@ class ChangePasswordSerializer(serializers.Serializer):
 
 
 class SendEmailConfirmationSerializer(serializers.Serializer):
-    email = serializers.EmailField(required = True)
+    email = serializers.EmailField(required=True)
 
 
 class VerifyEmailConfirmationSerializer(serializers.Serializer):
+    email = serializers.EmailField(
+        help_text="Email пользователя, указанный при регистрации."
+    )
     code = serializers.CharField(
         max_length = 12,
         min_length = 12,
