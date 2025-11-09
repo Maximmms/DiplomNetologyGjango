@@ -558,3 +558,14 @@ class EmailConfirmation(models.Model):
 
     def __str__(self):
         return f"{self.user.email} - {self.code}"
+
+
+class EmailChangeRequest(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="email_change_request")
+    new_email = models.EmailField(unique=True)
+    code = models.CharField(max_length=12)
+    created_at = models.DateTimeField(auto_now_add=True)
+    is_verified = models.BooleanField(default=False)
+
+    def __str__(self):
+        return f"{self.user.email} → {self.new_email}"

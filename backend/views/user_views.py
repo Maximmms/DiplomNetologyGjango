@@ -15,11 +15,10 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from backend.loggers.backend_logger import logger
-from backend.models import Contact, EmailConfirmation
+from backend.models import Contact, EmailChangeRequest, EmailConfirmation
 from backend.serializers import (
     ChangePasswordSerializer,
     ContactSerializer,
-    EmailStatusSerializer,
     SendEmailConfirmationSerializer,
     UserSerializer,
     VerifyEmailConfirmationSerializer,
@@ -60,12 +59,19 @@ User = get_user_model()
     )
 )
 class UserRegisterViewSet(viewsets.GenericViewSet, mixins.CreateModelMixin):
+    """
+    Регистрация нового пользователя.
+    Возвращает JWT-токены после успешного создания.
+    """
     permission_classes = [AllowAny]
     queryset = User.objects.all()
     serializer_class = UserSerializer
 
     @extend_schema(summary="Регистрация нового пользователя и получение JWT-токенов")
     def create(self, request, *args, **kwargs):
+        """
+        Создаёт нового пользователя и возвращает JWT-токены.
+        """
         serializer = self.get_serializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -130,6 +136,9 @@ class UserLoginView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
+        """
+        Проверяет email и пароль, возвращает JWT-токены при успехе.
+        """
         email = request.data.get("email")
         password = request.data.get("password")
 
@@ -148,20 +157,17 @@ class UserLoginView(APIView):
                 {"error": "Пользователь не найден."}, status=status.HTTP_404_NOT_FOUND
             )
 
-        # Проверяем, активен ли аккаунт
         if not user.is_active:
             return Response(
                 {"error": "Аккаунт не активирован. Проверьте email."},
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        # Проверяем пароль
         if not user.check_password(password):
             return Response(
                 {"error": "Неверный пароль."}, status=status.HTTP_401_UNAUTHORIZED
             )
 
-        # Генерируем JWT-токены
         refresh = RefreshToken.for_user(user)
         refresh.payload.update(
             {
@@ -194,12 +200,19 @@ class UserLoginView(APIView):
 )
 @throttle_classes([LoginThrottle])
 class UserLogoutViewSet(viewsets.GenericViewSet, mixins.CreateModelMixin):
+    """
+    Выход пользователя: добавляет refresh-токен в чёрный список.
+    Требует аутентификации.
+    """
     permission_classes = [IsAuthenticated]
     queryset = User.objects.all()
     serializer_class = UserSerializer
 
     @extend_schema(summary="Выход пользователя из системы")
     def create(self, request, *args, **kwargs):
+        """
+        Добавляет refresh-токен в чёрный список.
+        """
         refresh_token = request.data.get("refresh_token")
         if not refresh_token:
             return Response(
@@ -243,6 +256,9 @@ class UserChangePasswordViewSet(viewsets.GenericViewSet):
 
     @action(detail=False, methods=["post"], url_path="change", url_name="change")
     def change_password(self, request):
+        """
+        Проверяет старый пароль и устанавливает новый.
+        """
         serializer = self.get_serializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -277,10 +293,7 @@ class UserChangePasswordViewSet(viewsets.GenericViewSet):
     ),
     create=extend_schema(
         summary="Добавить новый адрес",
-        description="""
-Создаёт новый адрес доставки.
-- Поле `phone` (если передаётся) должно быть в формате России — начинаться с `7` или `8`.
-        """.strip(),
+        description="Создаёт новый адрес доставки.",
         tags=["USER"],
         request=ContactSerializer,
         responses={201: ContactSerializer, 400: dict},
@@ -288,10 +301,7 @@ class UserChangePasswordViewSet(viewsets.GenericViewSet):
     ),
     update=extend_schema(
         summary="Полное обновление адреса",
-        description="""
-Полностью обновляет указанный адрес.
-- Номер телефона должен начинаться с `7` или `8`.
-        """.strip(),
+        description="Полностью обновляет указанный адрес.",
         tags=["USER"],
         request=ContactSerializer,
         responses={200: ContactSerializer, 400: dict, 404: dict},
@@ -299,10 +309,7 @@ class UserChangePasswordViewSet(viewsets.GenericViewSet):
     ),
     partial_update=extend_schema(
         summary="Частичное обновление адреса",
-        description="""
-Обновляет только указанные поля адреса.
-- Если обновляется `phone`, он должен начинаться с `7` или `8`.
-        """.strip(),
+        description="Обновляет только указанные поля адреса.",
         tags=["USER"],
         request=ContactSerializer,
         responses={200: ContactSerializer, 400: dict, 404: dict},
@@ -354,11 +361,9 @@ class UserContactViewSet(viewsets.GenericViewSet,
     serializer_class = ContactSerializer
 
     def get_queryset(self):
-        # Пользователь видит только свои контакты
         return Contact.objects.filter(user=self.request.user)
 
     def perform_create(self, serializer):
-        # Привязываем контакт к текущему пользователю
         serializer.save(user=self.request.user)
 
     @extend_schema(
@@ -383,7 +388,7 @@ class UserContactViewSet(viewsets.GenericViewSet,
     @action(detail=False, methods=["get"], url_path="me", url_name="me")
     def me(self, request, *args, **kwargs):
         """
-        Получение контактной информации пользователя: профиль + все адреса.
+        Возвращает профиль пользователя и все его адреса доставки.
         """
         user = request.user
 
@@ -407,7 +412,7 @@ class UserContactViewSet(viewsets.GenericViewSet,
 
     def create(self, request, *args, **kwargs):
         """
-        Создание нового адреса для пользователя.
+        Создаёт новый адрес доставки для пользователя.
         """
         serializer = self.get_serializer(data=request.data)
         if not serializer.is_valid():
@@ -418,19 +423,19 @@ class UserContactViewSet(viewsets.GenericViewSet,
 
     def update(self, request, *args, **kwargs):
         """
-        Полное обновление контакта.
+        Полностью обновляет указанный адрес.
         """
         return super().update(request, *args, **kwargs)
 
     def partial_update(self, request, *args, **kwargs):
         """
-        Частичное обновление контакта.
+        Частично обновляет указанные поля адреса.
         """
         return super().partial_update(request, *args, **kwargs)
 
     def destroy(self, request, *args, **kwargs):
         """
-        Удаление контакта.
+        Удаляет указанный адрес доставки.
         """
         instance = self.get_object()
         self.perform_destroy(instance)
@@ -471,33 +476,31 @@ class UserContactViewSet(viewsets.GenericViewSet,
 )
 class UserProfileViewSet(viewsets.GenericViewSet, mixins.RetrieveModelMixin, mixins.UpdateModelMixin):
     """
-    Управление профилем пользователя:
-    - GET /user/profile/ — данные профиля
-    - PATCH /user/profile/ — частично обновить профиль
+    Получение и частичное обновление профиля пользователя.
+    Требует аутентификации.
     """
     permission_classes = [IsAuthenticated]
     serializer_class = UserSerializer
 
     def get_object(self):
-        # Возвращаем текущего пользователя
         return self.request.user
 
-    def profile(self, request, *args, **kwargs):
-        if request.method == "GET":
-            return self.retrieve(request, *args, **kwargs)
-        elif request.method == "PATCH":
-            return self.partial_update(request, *args, **kwargs)
-
     def retrieve(self, request, *args, **kwargs):
+        """
+        Возвращает данные профиля текущего пользователя.
+        """
         instance = self.get_object()
         serializer = self.get_serializer(instance)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     def partial_update(self, request, *args, **kwargs):
+        """
+        Обновляет указанные поля профиля.
+        Поле `type` может изменить только администратор.
+        """
         instance = self.get_object()
         data = request.data.copy()
 
-        # Защита поля `type`: только администратор может его изменить
         if "type" in data and not request.user.is_staff and not request.user.is_superuser:
             return Response(
                 {"error": "Изменение поля 'type' доступно только администраторам."},
@@ -656,5 +659,167 @@ class UserVerifyEmailConfirmationView(APIView):
 
         return Response(
             {"success": "Email успешно подтверждён! Аккаунт активирован."},
+            status=status.HTTP_200_OK
+        )
+
+
+class UserChangeEmailRequestView(APIView):
+    """
+    Запрос на изменение email.
+    Пользователь должен быть аутентифицирован.
+    На новый email отправляется код подтверждения.
+    """
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        summary="Запрос на изменение email",
+        description="""
+Позволяет авторизованному пользователю изменить email.
+- На новый email отправляется 12-значный код подтверждения.
+- Старый email остаётся активным до подтверждения нового.
+- Письмо отправляется от администратора сайта.
+        """.strip(),
+        tags=["USER"],
+        request=inline_serializer(
+            name="ChangeEmailRequest",
+            fields={
+                "new_email": serializers.EmailField(help_text="Новый email пользователя")
+            }
+        ),
+        responses={
+            200: {"type": "object", "properties": {"success": {"type": "string"}}},
+            400: {"type": "object", "properties": {"error": {"type": "string"}}},
+        },
+        operation_id="user_change_email_request",
+    )
+    def post(self, request):
+        new_email = request.data.get("new_email")
+        if not new_email:
+            return Response(
+                {"error": "Требуется поле 'new_email'."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        normalized_new_email = new_email.strip().lower()
+
+        try:
+            validate_email(normalized_new_email)
+        except ValidationError:
+            return Response(
+                {"error": "Некорректный формат email."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if normalized_new_email == request.user.email:
+            return Response(
+                {"error": "Новый email совпадает с текущим."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if User.objects.filter(email=normalized_new_email).exists():
+            return Response(
+                {"error": "Пользователь с таким email уже существует."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Генерируем код
+        code = generate_code(12)
+
+        # Сохраняем запрос на изменение
+        EmailChangeRequest.objects.update_or_create(
+            user=request.user,
+            defaults={
+                "new_email": normalized_new_email,
+                "code": code,
+                "created_at": timezone.now(),
+                "is_verified": False
+            }
+        )
+
+        # Отправка письма на новый email
+        send_email_confirmation.delay(
+            email=normalized_new_email,
+            code=code,
+            subject="Подтверждение изменения email",
+            message=f"Ваш код для подтверждения смены email: {code}\n\nЭто письмо отправлено от администратора сайта.",
+        )
+
+        logger.info(
+            f"Код смены email отправлен на {normalized_new_email} для пользователя {request.user.id}"
+        )
+
+        return Response(
+            {"success": f"Код отправлен на {normalized_new_email}"},
+            status=status.HTTP_200_OK,
+        )
+
+
+class UserVerifyEmailChangeView(APIView):
+    """
+    Подтверждение изменения email по коду.
+    Пользователь должен быть аутентифицирован.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        summary="Подтвердить email по коду",
+        description="""
+Позволяет пользователю подтвердить email с помощью 12-значного кода.
+- **Не требует авторизации** — используется при активации аккаунта.
+- Код действует 10 минут.
+- После подтверждения аккаунт активируется.
+        """.strip(),
+        tags=["USER"],
+        request=VerifyEmailConfirmationSerializer,
+        responses={
+            200: {"type": "object", "properties": {"success": {"type": "string"}}},
+            400: {"type": "object", "properties": {"error": {"type": "string"}}},
+            404: {"type": "object", "properties": {"error": {"type": "string"}}},
+        },
+        operation_id="user_verify_confirmation_code",
+    )
+    def post(self, request):
+        code = request.data.get("code")
+        if not code:
+            return Response(
+                {"error": "Требуется поле 'code'."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            change_request = EmailChangeRequest.objects.get(user=request.user)
+        except EmailChangeRequest.DoesNotExist:
+            return Response(
+                {"error": "Запрос на смену email не найден. Сначала отправьте код."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        if timezone.now() - change_request.created_at > timedelta(minutes=10):
+            change_request.delete()
+            return Response(
+                {"error": "Срок действия кода истёк. Запросите новый."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if change_request.code != code:
+            return Response(
+                {"error": "Неверный код."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Обновляем email пользователя
+        old_email = request.user.email
+        request.user.email = change_request.new_email
+        request.user.save()
+
+        # Помечаем как подтверждённое
+        change_request.is_verified = True
+        change_request.save()
+
+        logger.info(f"Email пользователя {request.user.id} изменён с {old_email} на {change_request.new_email}")
+
+        return Response(
+            {"success": f"Email успешно изменён на {change_request.new_email}"},
             status=status.HTTP_200_OK
         )

@@ -21,14 +21,13 @@ from backend.serializers import (
     get=extend_schema(
         summary="Получить список магазинов",
         description="""
-            Возвращает список всех магазинов с возможностью поиска и фильтрации.
+Возвращает список всех магазинов с возможностью поиска и фильтрации.
 
-            ---
-            #### Параметры:
-            - `search` — частичное совпадение по названию магазина
-            - `category_id` — магазины, связанные с указанной категорией
-            - `page`, `page_size` — пагинация
-        """,
+#### Параметры:
+- `search` — частичное совпадение по названию магазина
+- `category_id` — магазины, связанные с указанной категорией
+- `page`, `page_size` — пагинация
+        """.strip(),
         tags=["SHOP"],
         parameters=[
             OpenApiParameter(
@@ -36,28 +35,28 @@ from backend.serializers import (
                 type=str,
                 location=OpenApiParameter.QUERY,
                 description="Поиск магазина по названию (частичное совпадение)",
-                required=False
+                required=False,
             ),
             OpenApiParameter(
                 name="category_id",
                 type=int,
                 location=OpenApiParameter.QUERY,
                 description="Фильтрация по ID категории",
-                required=False
+                required=False,
             ),
             OpenApiParameter(
                 name="page",
                 type=int,
                 location=OpenApiParameter.QUERY,
                 description="Номер страницы",
-                required=False
+                required=False,
             ),
             OpenApiParameter(
                 name="page_size",
                 type=int,
                 location=OpenApiParameter.QUERY,
                 description="Количество магазинов на странице",
-                required=False
+                required=False,
             ),
         ],
         responses={200: ShopListSerializer(many=True)},
@@ -66,12 +65,20 @@ from backend.serializers import (
 )
 @method_decorator(cache_page(60 * 15), name="dispatch")
 class ShopListView(generics.ListAPIView):
+    """
+    Возвращает список всех активных магазинов.
+    Поддерживает фильтрацию по названию и категории, а также пагинацию.
+    Доступ: все пользователи.
+    """
     queryset = Shop.objects.select_related("user").prefetch_related("categories").filter(user__is_active=True)
     serializer_class = ShopListSerializer
     permission_classes = [AllowAny]
     pagination_class = None
 
     def get_queryset(self):
+        """
+        Возвращает отфильтрованный по поисковому запросу queryset магазинов.
+        """
         queryset = super().get_queryset()
         search = self.request.query_params.get("search", None)
         if search:
@@ -79,6 +86,10 @@ class ShopListView(generics.ListAPIView):
         return queryset.order_by("name")
 
     def list(self, request, *args, **kwargs):
+        """
+        Переопределённый метод для формирования ответа.
+        Добавляет обёртку {"status": True, "results": [...]}.
+        """
         queryset = self.get_queryset()
         page = self.paginate_queryset(queryset)
         if page is not None:
@@ -93,36 +104,37 @@ class ShopListView(generics.ListAPIView):
     get=extend_schema(
         summary="Получить информацию о магазине",
         description="""
-            Возвращает подробную информацию о магазине по его slug.
-            Пример: /shops/elektronika-24/
+Возвращает подробную информацию о магазине по его slug.
 
-            Поля ответа:
-            - id, название, URL
-            - Статус: "Принимает заказы" / "Не принимает заказы"
-            - Владелец (имя или username)
-            - Список категорий (id и название)
+### Поля ответа:
+- id, название, URL
+- Статус: "Принимает заказы" / "Не принимает заказы"
+- Владелец (имя или username)
+- Список категорий (id и название)
 
-            Доступ: Все пользователи (авторизованные и нет).
-        """,
+Доступ: Все пользователи (авторизованные и нет).
+        """.strip(),
         tags=["SHOP"],
-        responses={200: ShopDetailSerializer, 404: "Not Found"},
+        responses={200: ShopDetailSerializer, 404: {"type": "object", "properties": {}}},
         parameters=[
-            {
-                "name": "slug",
-                "in": "path",
-                "description": "Уникальный идентификатор магазина в виде строки (например, elektronika-24)",
-                "required": True,
-                "schema": {"type": "string"},
-            }
+            OpenApiParameter(
+                name="slug",
+                type=str,
+                location=OpenApiParameter.PATH,
+                description="Уникальный идентификатор магазина в виде строки (например, elektronika-24)",
+                required=True,
+            )
         ],
+        operation_id="shop_retrieve",
     )
 )
 @method_decorator(cache_page(60 * 15), name="dispatch")
 class ShopDetailView(generics.RetrieveAPIView):
     """
-    Получение информации о конкретном магазине — с детализацией по категориям.
+    Получение детальной информации о магазине по его slug.
+    Возвращается только активный магазин.
+    Доступ: все пользователи.
     """
-
     queryset = (
         Shop.objects.select_related("user")
         .prefetch_related("categories")
@@ -135,6 +147,10 @@ class ShopDetailView(generics.RetrieveAPIView):
 
 
 class CategoryPagination(PageNumberPagination):
+    """
+    Пагинатор для категорий.
+    Поддерживает настройку количества элементов на странице.
+    """
     page_size = 5
     page_size_query_param = "page_size"
     max_page_size = 50
@@ -145,7 +161,15 @@ class CategoryPagination(PageNumberPagination):
 @extend_schema_view(
     get=extend_schema(
         summary="Получить продукты магазина по категориям",
-        description="Возвращает товары магазина, сгруппированные по категориям.",
+        description="""
+Возвращает товары магазина, сгруппированные по категориям.
+
+#### Параметры:
+- `slug` — идентификатор магазина
+- `search` — поиск по названию товара
+- `category_id` — фильтрация по ID категории
+- `page`, `page_size` — пагинация по категориям
+        """.strip(),
         tags=["SHOP"],
         parameters=[
             OpenApiParameter("slug", str, OpenApiParameter.PATH, "Slug магазина", True),
@@ -154,17 +178,17 @@ class CategoryPagination(PageNumberPagination):
             OpenApiParameter("page", int, OpenApiParameter.QUERY, "Номер страницы", False),
             OpenApiParameter("page_size", int, OpenApiParameter.QUERY, "Количество категорий на странице", False),
         ],
-        responses={200: dict},
+        responses={200: {"type": "object", "properties": {"status": {"type": "boolean"}, "results": {"type": "object"}}}},
         operation_id="shop_products",
     )
 )
 @method_decorator(cache_page(60 * 15), name="dispatch")
 class ShopProductsView(GenericAPIView):
     """
-    Получение товаров магазина, сгруппированных по категориям.
-    Поддерживает поиск, фильтрацию и пагинацию по категориям.
+    Возвращает список товаров магазина, сгруппированных по категориям.
+    Поддерживает поиск, фильтрацию и пагинацию.
+    Доступ: все пользователи.
     """
-
     queryset = (
         Shop.objects.select_related("user")
         .prefetch_related("categories__products__product_info")
@@ -178,7 +202,8 @@ class ShopProductsView(GenericAPIView):
 
     def get_object(self):
         """
-        Получаем магазин по slug.
+        Получает магазин по `slug` из URL.
+        Возвращает 404, если магазин не найден или неактивен.
         """
         queryset = self.get_queryset()
         filter_kwargs = {self.lookup_field: self.kwargs[self.lookup_url_kwarg]}
@@ -187,13 +212,19 @@ class ShopProductsView(GenericAPIView):
         return obj
 
     def get(self, request, *args, **kwargs):
+        """
+        Обрабатывает GET-запрос:
+        - Получает магазин
+        - Фильтрует товары по поиску и категории
+        - Группирует по категориям
+        - Применяет пагинацию
+        - Возвращает структурированный ответ
+        """
         shop = self.get_object()
 
-        # Получаем параметры
         search = request.query_params.get("search", None)
         category_id = request.query_params.get("category_id", None)
 
-        # Фильтруем товары
         product_infos = shop.products.select_related("product", "product__category")
 
         if search:
@@ -209,7 +240,6 @@ class ShopProductsView(GenericAPIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
-        # Группируем по категориям
         categories_dict = {}
         for pi in product_infos.order_by("product__category__name", "product__name"):
             category = pi.product.category
@@ -217,13 +247,11 @@ class ShopProductsView(GenericAPIView):
                 categories_dict[category] = []
             categories_dict[category].append(pi)
 
-        # Пагинация
         paginator = self.pagination_class()
         paginated_categories = paginator.paginate_queryset(
             list(categories_dict.keys()), request, view=self
         )
 
-        # Собираем данные
         results = {}
         for category in paginated_categories:
             results[category.name] = ProductInfoSerializer(

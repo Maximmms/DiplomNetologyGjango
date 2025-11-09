@@ -9,7 +9,7 @@ from django.http import JsonResponse
 from django.utils.decorators import method_decorator
 from django.utils.text import slugify
 from django.views.decorators.cache import never_cache
-from drf_spectacular.utils import OpenApiExample, extend_schema, extend_schema_view
+from drf_spectacular.utils import OpenApiExample, extend_schema
 from rest_framework import status
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
@@ -33,6 +33,17 @@ UNIT_CHOICES = {choice[0] for choice in UNITS_OF_MEASURE}
 def process_shop_data_async(self,data, user_id):
     """
     Асинхронная задача обработки данных магазина.
+
+    Загружает или обновляет информацию о магазине, категориях и товарах.
+    Поддерживает создание магазина, если он не существует.
+    Обработка выполняется асинхронно через Celery.
+
+    Args:
+        data (dict): Данные из YAML-файла (shop, categories, goods).
+        user_id (int): ID пользователя-партнёра.
+
+    Returns:
+        dict: Результат обработки: статус, сообщения, количество созданных/обновлённых записей.
     """
     from django.contrib.auth import get_user_model
     User = get_user_model()
@@ -202,122 +213,119 @@ def process_shop_data_async(self,data, user_id):
     }
 
 
-@extend_schema_view(
-    post=extend_schema(
-        summary="Загрузка прайс-листа магазина из YAML-файла",
-        description="""
-            Позволяет партнёрам загружать или обновлять ассортимент товаров через YAML-файл.
+@extend_schema(
+    summary="Загрузка прайс-листа магазина из YAML-файла",
+    description="""
+Позволяет партнёрам загружать или обновлять ассортимент товаров через YAML-файл.
 
-            #### Поддерживаемые поля в файле yaml:
-            shop: Связной
-            categories:
-                - id: 224
-                    name: Смартфоны
-            goods:
-                - id: 4216292
-                    category: 224
-                    model: apple/iphone/xs-max
-                    name: Смартфон Apple iPhone XS Max 512GB
-                    price: 110000
-                    price_rrc: 116990
-                    quantity: 14
-                    unit_of_measure: pcs # опционально, по умолчанию 'pcs'
-                    parameters:
-                        Диагональ (дюйм): 6.5
-                        Цвет: золотистый
-            #### Особенности:
-            - Только для пользователей с типом `shop`
-            - Пользователь должен быть владельцем магазина
-            - Поддерживает обновление существующих товаров
-            - Обработка выполняется асинхронно (Celery)
-            - Поддерживаются `.yaml` и `.yml` файлы
-            - Можно использовать `name` или `slug` магазина
+### Пример структуры файла:
+shop: Связной
+categories:
+    - id: 224
+    name: Смартфоны
+goods:
+    - id: 4216292
+    category: 224
+    model: apple/iphone/xs-max
+    name: Смартфон Apple iPhone XS Max 512GB
+    price: 110000
+    price_rrc: 116990
+    quantity: 14
+    unit_of_measure: pcs
+    parameters:
+        Диагональ (дюйм): 6.5
+        Цвет: золотистый
 
-            ---
-            #### Валидация:
-            - `unit_of_measure` должен быть из допустимого списка (например: `pcs`, `m`, `kg`, `l`)
-            - Обязательные поля: `id`, `category`, `model`, `name`, `price`, `price_rrc`, `quantity`
-            - Файл не должен быть пустым
-        """,
-        request={
-            "multipart/form-data": {
-                "type": "object",
-                "properties": {
-                    "file": {
-                        "type": "string",
-                        "format": "binary",
-                        "description": "YAML-файл с прайс-листом",
+#### Особенности:
+- Только для пользователей с типом `shop`
+- Пользователь должен быть владельцем магазина
+- Обработка выполняется асинхронно (Celery)
+- Поддерживаются `.yaml` и `.yml` файлы
+- Можно использовать `name` или `slug` магазина
+
+### Валидация:
+- `unit_of_measure` должен быть из допустимого списка
+- Обязательные поля: `id`, `category`, `model`, `name`, `price`, `price_rrc`, `quantity`
+- Файл не должен быть пустым
+    """.strip(),
+    request={
+        "multipart/form-data": {
+            "type": "object",
+            "properties": {
+                "file": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "YAML-файл с прайс-листом",
+                }
+            },
+            "required": ["file"],
+        }
+    },
+    responses={
+        202: {
+            "type": "object",
+            "properties": {
+                "status": {"type": "boolean", "example": True},
+                "message": {
+                    "type": "string",
+                    "example": "Файл принят. Обработка началась.",
+                },
+                "task_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "example": "c3a5f8b2-1d2e-4f1a-9c1b-2e3d4f5a6b7c",
+                },
+            },
+        },
+        400: {
+            "type": "object",
+            "properties": {
+                "status": {"type": "boolean", "example": False},
+                "errors": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "example": ["Файл не предоставлен"],
+                },
+            },
+        },
+        403: {
+            "type": "object",
+            "properties": {
+                "status": {"type": "boolean", "example": False},
+                "errors": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "example": ["Вы не являетесь владельцем магазина 'Связной'"],
+                },
+            },
+        },
+    },
+    tags=["PARTNERS"],
+    examples=[
+        OpenApiExample(
+            name="Пример YAML-файла",
+            value={
+                "shop": "elektronika-24",
+                "categories": [{"id": 1, "name": "Смартфоны"}],
+                "goods": [
+                    {
+                        "id": 1001,
+                        "category": 1,
+                        "model": "iphone-xs",
+                        "name": "iPhone XS",
+                        "price": 80000,
+                        "price_rrc": 85000,
+                        "quantity": 5,
+                        "unit_of_measure": "pcs",
+                        "parameters": {"Цвет": "серебристый"},
                     }
-                },
-                "required": ["file"],
-            }
-        },
-        responses={
-            202: {
-                "type": "object",
-                "properties": {
-                    "status": {"type": "boolean", "example": True},
-                    "message": {
-                        "type": "string",
-                        "example": "Файл принят. Обработка началась.",
-                    },
-                    "task_id": {
-                        "type": "string",
-                        "format": "uuid",
-                        "example": "c3a5f8b2-1d2e-4f1a-9c1b-2e3d4f5a6b7c",
-                    },
-                },
+                ],
             },
-            400: {
-                "type": "object",
-                "properties": {
-                    "status": {"type": "boolean", "example": False},
-                    "errors": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "example": ["Файл не предоставлен"],
-                    },
-                },
-            },
-            403: {
-                "type": "object",
-                "properties": {
-                    "status": {"type": "boolean", "example": False},
-                    "errors": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "example": ["Вы не являетесь владельцем магазина 'Связной'"],
-                    },
-                },
-            },
-        },
-        tags=["PARTNERS"],
-        examples=[
-            OpenApiExample(
-                name="Пример YAML-файла",
-                value={
-                    "shop": "elektronika-24",
-                    "categories": [{"id": 1, "name": "Смартфоны"}],
-                    "goods": [
-                        {
-                            "id": 1001,
-                            "category": 1,
-                            "model": "iphone-xs",
-                            "name": "iPhone XS",
-                            "price": 80000,
-                            "price_rrc": 85000,
-                            "quantity": 5,
-                            "unit_of_measure": "pcs",
-                            "parameters": {"Цвет": "серебристый"},
-                        }
-                    ],
-                },
-                description="Пример структуры файла для загрузки",
-                request_only=False,
-                response_only=False,
-            )
-        ],
-    )
+            description="Пример структуры файла для загрузки",
+            request_only=False,
+            response_only=False,
+        )
+    ],
 )
 @method_decorator(never_cache, name="dispatch")
 class PartnerPriceUploadView(APIView):
@@ -328,11 +336,20 @@ class PartnerPriceUploadView(APIView):
     - Загрузку по имени или slug магазина
     - Поле `unit_of_measure` в товарах
     - Асинхронную обработку через Celery
+
+    Доступ: только авторизованные пользователи с типом `shop`.
     """
     parser_classes = (MultiPartParser, FormParser)
     permission_classes = [IsAuthenticated, IsShopUser]
 
     def post(self, request, *args, **kwargs):
+        """
+        Обрабатывает POST-запрос с YAML-файлом.
+        Проверяет формат, парсит содержимое и отправляет задачу в Celery.
+
+        Returns:
+            JsonResponse: Статус, сообщение и ID задачи.
+        """
         file_obj = request.FILES.get("file")
 
         if not file_obj:
@@ -350,14 +367,6 @@ class PartnerPriceUploadView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # required_keys = ["shop", "categories", "goods"]
-        # if not all(key in file_obj for key in required_keys):
-        #     return JsonResponse(
-        #         {"status": False, "errors": "Некорректная структура YAML. Требуются: shop, categories, goods"},
-        #         status=400
-        #     )
-
-
         try:
             data = yaml.safe_load(io.TextIOWrapper(file_obj, encoding="utf-8").read())
         except Exception as e:
@@ -367,7 +376,6 @@ class PartnerPriceUploadView(APIView):
                 "errors": f"Ошибка парсинга YAML: {str(e)}"
             }, status=status.HTTP_400_BAD_REQUEST)
 
-        # Отправляем задачу в Celery
         task = process_shop_data_async.delay(data, request.user.id)
 
         return JsonResponse({
