@@ -18,16 +18,6 @@ USER_TYPE_CHOICES = (
     ("shop", "Магазин"),
 )
 
-ORDER_STATUS_CHOICES = (
-    ("basket", "Статус корзины"),
-    ("new", "Новый"),
-    ("confirmed", "Подтвержден"),
-    ("assembled", "Собран"),
-    ("sent", "Отправлен"),
-    ("delivered", "Доставлен"),
-    ("canceled", "Отменен"),
-)
-
 UNITS_OF_MEASURE = [
     # 📏 Длина
     ("m", "метр"),
@@ -463,11 +453,7 @@ class ProductParameter(models.Model):
     class Meta:
         verbose_name = "Параметр товара"
         verbose_name_plural = "Список параметров товара"
-        indexes = [
-        models.Index(
-        fields=["parameter", "value"]
-        )
-        ]
+        indexes = [models.Index(fields=["parameter", "value"])]
         constraints = [
         models.UniqueConstraint(
         fields=["product_info", "parameter"],
@@ -477,6 +463,16 @@ class ProductParameter(models.Model):
 
 
 class Order(models.Model):
+    ORDER_STATUS_CHOICES = (
+        ("basket", "Статус корзины"),
+        ("new", "Новый"),
+        ("confirmed", "Подтвержден"),
+        ("assembled", "Собран"),
+        ("sent", "Отправлен"),
+        ("delivered", "Доставлен"),
+        ("canceled", "Отменен"),
+    )
+
     user = models.ForeignKey(
         User,
         on_delete=models.CASCADE,
@@ -487,7 +483,7 @@ class Order(models.Model):
         verbose_name="Дата"
     )
     status = models.CharField(
-        max_length=255,
+        max_length=16,
         default="new",
         choices=ORDER_STATUS_CHOICES,
         verbose_name="Статус заказа"
@@ -509,10 +505,7 @@ class Order(models.Model):
 
 class OrderItem(models.Model):
     order = models.ForeignKey(
-        Order,
-        on_delete=models.CASCADE,
-        related_name="items",
-        verbose_name="Заказ"
+        Order, on_delete=models.CASCADE, related_name="items", verbose_name="Заказ"
     )
     product_info = models.ForeignKey(
         ProductInfo,
@@ -524,6 +517,11 @@ class OrderItem(models.Model):
         default=0,
         verbose_name="Количество"
     )
+    shop_confirmed = models.BooleanField(
+        default=False,
+        verbose_name="Подтвержден поставщиком",
+        help_text="Указывает, что поставщик подтвердил наличие и готовность собрать товар"
+    )
 
     def __str__(self):
         return f"{self.product_info.product} - {self.quantity}"
@@ -533,10 +531,10 @@ class OrderItem(models.Model):
         verbose_name_plural = "Пункты заказа"
         indexes = [models.Index(fields=["order", "product_info"])]
         constraints = [
-        models.UniqueConstraint(
-        fields=["order", "product_info"],
-        name="unique_order_item"
-        )
+            models.UniqueConstraint(
+                fields=["order", "product_info"],
+                name="unique_order_item"
+            )
         ]
 
 

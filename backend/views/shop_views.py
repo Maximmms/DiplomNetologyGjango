@@ -1,16 +1,24 @@
 from __future__ import annotations
 
+from django.db.models import Q
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import cache_page
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
-from rest_framework import generics, status
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    extend_schema,
+    extend_schema_view,
+    inline_serializer,
+)
+from rest_framework import generics, serializers, status
 from rest_framework.generics import GenericAPIView
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
-from backend.models import Shop
+from backend.models import Category, ProductInfo, Shop
 from backend.serializers import (
+    CategorySerializer,
+    ProductInfoSearchSerializer,
     ProductInfoSerializer,
     ShopDetailSerializer,
     ShopListSerializer,
@@ -262,3 +270,180 @@ class ShopProductsView(GenericAPIView):
             "status": True,
             "results": results
         })
+
+
+@extend_schema_view(
+    get=extend_schema(  # ← Добавлено 'get='
+        summary="Поиск товаров по магазинам",
+        description="""
+Выполняет поиск товаров по названию по всем магазинам.
+
+#### Параметры:
+- `search` — ключевое слово для поиска (обязательный)
+- `page`, `page_size` — пагинация
+    """.strip(),
+        tags=["SHOP"],  # ← Заглавными
+        parameters=[
+            OpenApiParameter(
+                name="search",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="Ключевое слово для поиска товара",
+                required=True,
+            ),
+            OpenApiParameter(
+                name="page",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                description="Номер страницы",
+                required=False,
+            ),
+            OpenApiParameter(
+                name="page_size",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                description="Количество результатов на странице",
+                required=False,
+            ),
+        ],
+        responses={
+            200: inline_serializer(
+                name="ProductInfoSearchResponse",
+                fields={
+                    "count": serializers.IntegerField(help_text="Общее количество результатов"),
+                    "next": serializers.URLField(help_text="Ссылка на следующую страницу", required=False, allow_null=True),
+                    "previous": serializers.URLField(help_text="Ссылка на предыдущую страницу", required=False, allow_null=True),
+                    "results": inline_serializer(
+                        name="ProductInfoSearchResult",
+                        fields=ProductInfoSearchSerializer().get_fields()
+                    ),
+                },
+            ),
+        },
+        operation_id="product_search",  # ← Уникальный ID
+    )
+)
+class ShopProductSearchView(generics.ListAPIView):
+    """
+    Поиск товаров по названию по всем активным магазинам.
+    Поддерживает пагинацию.
+    Доступ: все пользователи.
+    """
+    serializer_class = ProductInfoSearchSerializer
+    permission_classes = [AllowAny]
+    pagination_class = PageNumberPagination
+
+    def get_queryset(self):
+        request = self.request
+        search = request.query_params.get("search", "").strip()
+        if not search:
+            return ProductInfo.objects.none()
+
+        queryset = (
+            ProductInfo.objects.select_related("product", "shop")
+            .filter(shop__user__is_active=True, shop__state=True, quantity__gt=0)
+            .prefetch_related("product_parameters__parameter")
+            .distinct()
+        )
+
+        return queryset.filter(
+            Q(product__name__icontains=search)
+            | Q(model__icontains=search)
+            | Q(product_parameters__parameter__name__icontains=search)
+            | Q(product_parameters__value__icontains=search)
+        ).order_by("product__name")
+
+    def list(self, request, *args, **kwargs):
+        search = request.query_params.get("search", "").strip()
+        if not search:
+            return Response(
+                {"error": "Требуется параметр 'search'"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        return super().list(request, *args, **kwargs)
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Получить список всех категорий",
+        description="""
+Возвращает список всех категорий товаров в системе.
+
+#### Параметры:
+- `search` — фильтрация по частичному совпадению с названием категории
+- `page`, `page_size` — пагинация
+
+#### Пример ответа:
+json { "count": 3, "next": null, "previous": null, "results": [ { "id": 1, "name": "Смартфоны" }, { "id": 2, "name": "Ноутбуки" } ] }
+        """.strip(),
+        tags=["SHOP"],
+        parameters=[
+            OpenApiParameter(
+                name="search",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="Поиск по названию категории (частичное совпадение)",
+                required=False,
+            ),
+            OpenApiParameter(
+                name="page",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                description="Номер страницы",
+                required=False,
+            ),
+            OpenApiParameter(
+                name="page_size",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                description="Количество категорий на странице",
+                required=False,
+            ),
+        ],
+        responses=inline_serializer(
+            name="CategoryListResponse",
+            fields={
+                "count": serializers.IntegerField(help_text="Общее количество категорий"),
+                "next": serializers.URLField(help_text="Ссылка на следующую страницу", required=False, allow_null=True),
+                "previous": serializers.URLField(help_text="Ссылка на предыдущую страницу", required=False, allow_null=True),
+                "results": inline_serializer(
+                    name="CategoryItem",
+                    fields=CategorySerializer().get_fields()
+                ),
+            },
+        ),
+        operation_id="category_list",
+    )
+)
+class CategoryListView(generics.ListAPIView):
+    """
+    Возвращает список всех категорий с возможностью поиска и пагинации.
+    Доступ: все пользователи.
+    """
+    queryset = Category.objects.all().order_by("name")
+    serializer_class = CategorySerializer
+    permission_classes = [AllowAny]
+    pagination_class = PageNumberPagination
+
+    def get_queryset(self):
+        """
+        Возвращает отфильтрованный по поисковому запросу queryset категорий.
+        """
+        queryset = super().get_queryset()
+        search = self.request.query_params.get("search")
+        if search:
+            queryset = queryset.filter(name__icontains=search)
+        return queryset
+
+    def list(self, request, *args, **kwargs):
+        """
+        Переопределённый метод для возврата ответа в формате:
+        {"count", "next", "previous", "results"}
+        """
+        queryset = self.get_queryset()
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(queryset, many=True)
+        return Response({"count": queryset.count(), "next": None, "previous": None, "results": serializer.data})

@@ -5,26 +5,39 @@ from decimal import Decimal
 
 import yaml
 from celery import current_app as celery_app
+from django.db import transaction
 from django.http import JsonResponse
 from django.utils.decorators import method_decorator
 from django.utils.text import slugify
 from django.views.decorators.cache import never_cache
-from drf_spectacular.utils import OpenApiExample, extend_schema
-from rest_framework import status
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import (
+    OpenApiExample,
+    OpenApiParameter,
+    extend_schema,
+    extend_schema_view,
+    inline_serializer,
+)
+from rest_framework import serializers, status
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.utils import timezone
 from rest_framework.views import APIView
 
 from backend.loggers.backend_logger import logger
 from backend.models import (
     UNITS_OF_MEASURE,
     Category,
+    Order,
     Parameter,
     Product,
     ProductInfo,
     ProductParameter,
     Shop,
 )
+from backend.serializers import OrderSerializer
+from backend.tasks import send_email_confirmation
 from backend.utils.permissions import IsShopUser
 
 UNIT_CHOICES = {choice[0] for choice in UNITS_OF_MEASURE}
@@ -383,3 +396,468 @@ class PartnerPriceUploadView(APIView):
             "message": "Файл принят. Обработка началась.",
             "task_id": task.id
         }, status=status.HTTP_202_ACCEPTED)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Получить статус магазина",
+        description="Возвращает текущий статус магазина: активен или нет.",
+        tags=["PARTNERS"],
+        responses={
+            200: {
+                "type": "object",
+                "properties": {
+                    "state": {"type": "boolean", "example": True},
+                    "shop_name": {"type": "string", "example": "Электроника 24"}
+                }
+            },
+            404: {
+                "type": "object",
+                "properties": {
+                    "error": {"type": "string", "example": "Магазин не найден."}
+                }
+            }
+        },
+        operation_id="partner_shop_state_get",
+    ),
+    post=extend_schema(
+        summary="Изменить статус магазина",
+        description="""
+Изменяет статус магазина (принимает заказы / не принимает заказы).
+- Доступно только авторизованным пользователям с типом `shop`.
+- Пользователь должен быть владельцем магазина.
+- Принимает `true` или `false` в теле запроса.
+        """.strip(),
+        tags=["PARTNERS"],
+        request=inline_serializer(
+            name="ChangeShopState",
+            fields={"state": serializers.BooleanField()}
+        ),
+        responses={
+            200: {
+                "type": "object",
+                "properties": {
+                    "state": {"type": "boolean", "example": True},
+                    "message": {"type": "string", "example": "Статус магазина обновлён."}
+                }
+            },
+            400: {
+                "type": "object",
+                "properties": {
+                    "error": {"type": "string"}
+                }
+            },
+            403: {
+                "type": "object",
+                "properties": {
+                    "error": {"type": "string"}
+                }
+            },
+            404: {
+                "type": "object",
+                "properties": {
+                    "error": {"type": "string"}
+                }
+            }
+        },
+        operation_id="partner_shop_state_post",
+    )
+)
+class PartnerShopStateView(APIView):
+    """
+    Получение и изменение статуса магазина (активен / неактивен).
+    Доступ: только владелец магазина (пользователь с type='shop').
+    """
+    permission_classes = [IsAuthenticated, IsShopUser]
+
+    def get(self, request):
+        """
+        Возвращает текущий статус магазина.
+        """
+        try:
+            shop = Shop.objects.get(user=request.user)
+            return Response({
+                "state": shop.state,
+                "shop_name": shop.name
+            }, status=status.HTTP_200_OK)
+        except Shop.DoesNotExist:
+            return Response(
+                {"error": "Магазин не найден."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+    def post(self, request):
+        """
+        Обновляет статус магазина.
+        Принимает `state: true/false`.
+        """
+        state_raw = request.data.get("state")
+
+        if state_raw is None:
+            return Response(
+                {"error": "Требуется поле 'state' (true или false)."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            state = bool(state_raw)
+        except (ValueError, TypeError):
+            return Response(
+                {"error": "Поле 'state' должно быть true или false."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            shop = Shop.objects.get(user=request.user)
+        except Shop.DoesNotExist:
+            return Response(
+                {"error": "Магазин не найден."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        shop.state = state
+        shop.save()
+
+        action = "активирован" if state else "деактивирован"
+        logger.info(f"Магазин {shop.name} {action} пользователем {request.user.email}")
+
+        return Response({
+            "state": shop.state,
+            "message": "Статус магазина обновлён."
+        }, status=status.HTTP_200_OK)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Получить заказы для магазина",
+        description="""
+Возвращает список заказов, содержащих товары из текущего магазина.
+
+#### Что возвращается:
+- Заказы, в которых есть товары из этого магазина.
+- Для каждого заказа:
+    - ID заказа
+    - Статус заказа
+    - Покупатель (email, имя, фамилия)
+    - Контактная информация
+    - Список товаров из этого магазина с ценой, количеством и единицей измерения
+    - Общая сумма товаров из этого магазина
+
+#### Параметры фильтрации:
+- `status` — фильтр по статусу заказа (например: `new`, `confirmed`, `assembled`, `sent`, `delivered`, `canceled`)
+- `date_from`, `date_to` — фильтрация по дате создания заказа
+
+#### Особенности:
+- Доступ только авторизованным пользователям с типом `shop`.
+- Возвращаются только те позиции заказа, которые относятся к магазину.
+- Сумма рассчитывается только по товарам магазина.
+        """.strip(),
+        tags=["PARTNERS"],
+        parameters=[
+            OpenApiParameter(
+                name="status",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="Фильтр по статусу заказа",
+                enum=["new", "confirmed", "assembled", "sent", "delivered", "canceled"],
+                required=False,
+            ),
+            OpenApiParameter(
+                name="date_from",
+                type=OpenApiTypes.DATE,
+                location=OpenApiParameter.QUERY,
+                description="Фильтр: дата от (YYYY-MM-DD)",
+                required=False,
+            ),
+            OpenApiParameter(
+                name="date_to",
+                type=OpenApiTypes.DATE,
+                location=OpenApiParameter.QUERY,
+                description="Фильтр: дата до (YYYY-MM-DD)",
+                required=False,
+            ),
+        ],
+        responses={
+            200: {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "order_id": {"type": "integer"},
+                        "status": {"type": "string"},
+                        "created_at": {"type": "string", "format": "date-time"},
+                        "user": {
+                            "type": "object",
+                            "properties": {
+                                "email": {"type": "string"},
+                                "first_name": {"type": "string"},
+                                "last_name": {"type": "string"},
+                            },
+                        },
+                        "contact": {"type": "string"},
+                        "items": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "product": {"type": "string"},
+                                    "model": {"type": "string"},
+                                    "quantity": {"type": "number"},
+                                    "unit_of_measure": {"type": "string"},
+                                    "price": {"type": "number"},
+                                    "total": {"type": "number"},
+                                },
+                            },
+                        },
+                        "total_amount": {"type": "number"},
+                    },
+                },
+            }
+        },
+        operation_id="partner_orders",
+    )
+)
+class PartnerOrdersView(APIView):
+    """
+    Получение заказов, содержащих товары магазина.
+    Доступ: только авторизованные пользователи с типом `shop`.
+    """
+    permission_classes = [IsAuthenticated, IsShopUser]
+
+    def get(self, request):
+        try:
+            shop = Shop.objects.get(user=request.user)
+        except Shop.DoesNotExist:
+            return Response(
+                {"error": "Магазин не найден."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Начинаем с заказов, содержащих товары из этого магазина
+        queryset = Order.objects.filter(
+            ordered_items__product_info__shop=shop
+        ).distinct().select_related("user", "contact").prefetch_related(
+            "ordered_items__product_info__product",
+            "ordered_items__product_info"
+        ).order_by("-created_at")
+
+        # Фильтрация по статусу
+        status_filter = request.query_params.get("status")
+        if status_filter:
+            if status_filter not in dict(Order.ORDER_STATUS_CHOICES):
+                return Response(
+                    {"error": "Некорректный статус."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            queryset = queryset.filter(status=status_filter)
+
+        # Фильтрация по дате
+        date_from = request.query_params.get("date_from")
+        if date_from:
+            try:
+                date_from = timezone.datetime.strptime(date_from, "%Y-%m-%d").date()
+                queryset = queryset.filter(created_at__date__gte=date_from)
+            except ValueError:
+                return Response(
+                    {"error": "Некорректный формат даты 'date_from'. Используйте YYYY-MM-DD."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        date_to = request.query_params.get("date_to")
+        if date_to:
+            try:
+                date_to = timezone.datetime.strptime(date_to, "%Y-%m-%d").date()
+                queryset = queryset.filter(created_at__date__lte=date_to)
+            except ValueError:
+                return Response(
+                    {"error": "Некорректный формат даты 'date_to'. Используйте YYYY-MM-DD."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        orders_data = []
+        for order in queryset:
+            items = order.ordered_items.filter(product_info__shop=shop)
+            shop_items_data = []
+            total_amount = 0
+
+            for item in items:
+                price = item.product_info.price
+                quantity = item.quantity
+                item_total = price * quantity
+                total_amount += item_total
+
+                shop_items_data.append({
+                    "product": item.product_info.product.name,
+                    "model": item.product_info.model,
+                    "quantity": float(quantity),
+                    "unit_of_measure": item.product_info.get_unit_of_measure_display(),
+                    "price": float(price),
+                    "total": float(item_total),
+                })
+
+            orders_data.append({
+                "order_id": order.id,
+                "status": order.status,
+                "created_at": order.created_at,
+                "user": {
+                    "email": order.user.email,
+                    "first_name": order.user.first_name,
+                    "last_name": order.user.last_name,
+                },
+                "contact": str(order.contact) if order.contact else "-",
+                "items": shop_items_data,
+                "total_amount": float(total_amount),
+            })
+
+        return Response(orders_data, status=status.HTTP_200_OK)
+
+
+@extend_schema_view(
+    post=extend_schema(
+        summary="Подтвердить сборку своей части заказа",
+        description="""
+Позволяет магазину подтвердить, что он готов собрать свои товары из заказа.
+
+#### Условия:
+- Пользователь должен быть авторизован и иметь тип `shop`.
+- Магазин должен быть владельцем хотя бы одного товара в заказе.
+- Заказ должен находиться в статусе `confirmed`.
+- Количество товара на складе должно быть достаточным.
+
+#### Процесс:
+1. Находит заказ по `order_id`.
+2. Находит позиции заказа, относящиеся к магазину.
+3. Проверяет наличие товаров.
+4. Уменьшает количество на складе.
+5. Устанавливает флаг `shop_confirmed = True` для этих позиций.
+
+#### Особенности:
+- Статус заказа **не меняется сразу** на `assembled`.
+- Статус `assembled` будет установлен **только когда все магазины** подтвердят свои позиции.
+- Это позволяет корректно обрабатывать заказы с товарами из нескольких магазинов.
+
+#### Ответ:
+- Возвращает обновлённый заказ.
+- Если все магазины подтвердили — статус автоматически меняется на `assembled`.
+- Также клиенту отправляется письмо о готовности заказа к отправке.
+        """.strip(),
+        tags=["PARTNERS"],
+        request={
+            "application/json": {
+                "type": "object",
+                "properties": {
+                    "order_id": {"type": "integer", "example": 1, "description": "ID заказа"}
+                },
+                "required": ["order_id"]
+            }
+        },
+        responses={200: OrderSerializer, 400: {"type": "object"}, 404: {"type": "object"}},
+        operation_id="partner_order_confirm",
+    )
+)
+class PartnerConfirmOrderView(APIView):
+    permission_classes = [IsAuthenticated, IsShopUser]
+
+    @transaction.atomic
+    def post(self, request):
+        order_id = request.data.get("order_id")
+
+        if not order_id:
+            return Response(
+                {"status": "error", "errors": "Требуется указать order_id."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            order = Order.objects.select_for_update().get(id=order_id)
+        except Order.DoesNotExist:
+            return Response(
+                {"status": "error", "errors": "Заказ не найден."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        try:
+            shop = Shop.objects.get(user=request.user)
+        except Shop.DoesNotExist:
+            return Response(
+                {"status": "error", "errors": "Магазин не найден."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if order.status != "confirmed":
+            return Response(
+                {"status": "error", "errors": f"Заказ должен быть в статусе 'confirmed'. Текущий статус: {order.status}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        order_items = order.ordered_items.filter(product_info__shop=shop).select_related("product_info")
+        if not order_items.exists():
+            return Response(
+                {"status": "error", "errors": "В этом заказе нет товаров из вашего магазина."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        out_of_stock = []
+        for item in order_items:
+            if item.quantity > item.product_info.quantity:
+                out_of_stock.append({
+                    "product": item.product_info.product.name,
+                    "model": item.product_info.model,
+                    "available": item.product_info.quantity,
+                    "ordered": item.quantity
+                })
+
+        if out_of_stock:
+            return Response(
+                {"status": "error", "errors": "Недостаточно товара на складе", "details": out_of_stock},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        for item in order_items:
+            product_info = item.product_info
+            product_info.quantity -= item.quantity
+            product_info.save(update_fields=["quantity"])
+
+            item.shop_confirmed = True
+            item.save(update_fields=["shop_confirmed"])
+
+        logger.info(f"Магазин '{shop.name}' подтвердил свои позиции в заказе #{order_id}.")
+
+        if all(item.shop_confirmed for item in order.ordered_items.all()):
+            order.status = "assembled"
+            order.save(update_fields=["status"])
+            logger.info(f"Заказ #{order_id} переведён в статус 'assembled' — все магазины подтвердили.")
+
+            self.send_assembled_confirmation_email(order)
+
+        serializer = OrderSerializer(order)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def send_assembled_confirmation_email(self, order: Order):
+        """
+        Отправляет клиенту письмо о готовности заказа к отправке.
+
+        Письмо отправляется асинхронно через Celery при переходе заказа в статус 'assembled'.
+        Перед отправкой проверяется наличие email у пользователя.
+        """
+        if not order.user.email:
+            logger.warning(
+                f"Не могу отправить email: у пользователя {order.user.email} не указан email."
+            )
+            return
+
+        subject = f"Ваш заказ #{order.id} собран и готов к отправке"
+        message = (
+            f"Здравствуйте, {order.user.first_name or 'Уважаемый клиент'}\n\n"
+            f"Ваш заказ #{order.id} полностью собран и готов к отправке.\n"
+            f"Мы сообщим, когда он будет передан в службу доставки.\n\n"
+            f"Спасибо за покупку!\n"
+            f"С уважением, команда интернет-магазина"
+        )
+
+        send_email_confirmation.delay(
+            email=order.user.email,
+            subject=subject,
+            message=message,
+            from_email=None
+        )

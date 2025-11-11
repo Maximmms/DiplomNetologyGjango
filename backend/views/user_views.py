@@ -36,7 +36,7 @@ User = get_user_model()
     create=extend_schema(
         summary="Регистрация нового пользователя",
         description="""
-Регистрирует нового пользователя. 
+Регистрирует нового пользователя.
 - **Телефонный номер** должен начинаться с `7` или `8` (формат России).
 - Поле `type` может принимать одно из двух значений: `shop` или `buyer`.
     - `shop` — пользователь представляет магазин.
@@ -451,12 +451,12 @@ class UserContactViewSet(viewsets.GenericViewSet,
         description="""
 Возвращает основную информацию о текущем пользователе.
 - **Телефонный номер** должен начинаться с `7` или `8` (формат России).
-- Поле `type` отображается как текст: `shop` или `buyer`.
-    - `shop` — пользователь представляет магазин.
-    - `buyer` — обычный покупатель.
+- Поле `type` отображается как текст: `Магазин` или `Покупатель`.
+    - `Магазин` — пользователь представляет магазин.
+    - `Покупатель` — обычный покупатель.
         """.strip(),
         tags=["USER"],
-        responses=UserSerializer,
+        responses={200: UserSerializer},
         operation_id="user_profile_retrieve",
     ),
     partial_update=extend_schema(
@@ -464,15 +464,17 @@ class UserContactViewSet(viewsets.GenericViewSet,
         description="""
 Обновляет указанные поля профиля.
 - **Телефонный номер** должен начинаться с `7` или `8` (формат России).
-- Поле `type` может быть изменено только при наличии прав (не досупно для обычного пользователя).
-    Допустимые значения: `shop`, `buyer`.
+- Поле `type` может быть изменено только при наличии прав администратора (не доступно для обычного пользователя).
+    Допустимые значения: `Магазин`, `Покупатель`.
         """.strip(),
         tags=["USER"],
         request=UserSerializer,
-        responses={200: UserSerializer, 400: dict},
+        responses={200: UserSerializer, 400: dict, 403: dict},
         operation_id="user_profile_partial_update",
     ),
-    update=extend_schema(exclude=True),
+    update=extend_schema(
+        exclude=True
+    ),
 )
 class UserProfileViewSet(viewsets.GenericViewSet, mixins.RetrieveModelMixin, mixins.UpdateModelMixin):
     """
@@ -485,14 +487,6 @@ class UserProfileViewSet(viewsets.GenericViewSet, mixins.RetrieveModelMixin, mix
     def get_object(self):
         return self.request.user
 
-    def retrieve(self, request, *args, **kwargs):
-        """
-        Возвращает данные профиля текущего пользователя.
-        """
-        instance = self.get_object()
-        serializer = self.get_serializer(instance)
-        return Response(serializer.data, status=status.HTTP_200_OK)
-
     def partial_update(self, request, *args, **kwargs):
         """
         Обновляет указанные поля профиля.
@@ -501,6 +495,7 @@ class UserProfileViewSet(viewsets.GenericViewSet, mixins.RetrieveModelMixin, mix
         instance = self.get_object()
         data = request.data.copy()
 
+        # Удаляем поле 'type' из данных, если пользователь не является администратором
         if "type" in data and not request.user.is_staff and not request.user.is_superuser:
             return Response(
                 {"error": "Изменение поля 'type' доступно только администраторам."},
@@ -569,7 +564,11 @@ class UserSendEmailConfirmationView(APIView):
         EmailConfirmation.objects.filter(user=user).delete()
         EmailConfirmation.objects.create(user=user, code=code)
 
-        send_email_confirmation.delay(email=normalized_email, code=code)
+        send_email_confirmation.delay(
+            mail=normalized_email,
+            subject="Код подтверждения",
+            message=f"Ваш код подтверждения: {code}\nОн действителен 10 минут.",
+        )
 
         logger.info(f"Код подтверждения отправлен на email: {normalized_email}")
 
@@ -602,7 +601,7 @@ class UserVerifyEmailConfirmationView(APIView):
             400: {"type": "object", "properties": {"error": {"type": "string"}}},
             404: {"type": "object", "properties": {"error": {"type": "string"}}},
         },
-        operation_id="user_verify_confirmation_code",
+        operation_id="user_verify_email_confirmation",
     )
     def post(self, request):
         serializer = VerifyEmailConfirmationSerializer(data=request.data)
@@ -739,7 +738,6 @@ class UserChangeEmailRequestView(APIView):
         # Отправка письма на новый email
         send_email_confirmation.delay(
             email=normalized_new_email,
-            code=code,
             subject="Подтверждение изменения email",
             message=f"Ваш код для подтверждения смены email: {code}\n\nЭто письмо отправлено от администратора сайта.",
         )

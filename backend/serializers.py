@@ -67,6 +67,9 @@ class ContactSerializer(serializers.ModelSerializer):
 class UserSerializer(serializers.ModelSerializer):
     contacts = ContactSerializer(many=True, read_only=True)
     password = serializers.CharField(write_only=True)
+    type = serializers.SerializerMethodField(
+        help_text="Тип пользователя: Магазин или Покупатель"
+    )
     phone_number = serializers.CharField(
         validators=[validate_phone_number],
         required=False,
@@ -112,6 +115,12 @@ class UserSerializer(serializers.ModelSerializer):
                 "Неверный формат номера телефона. Ожидается 10 или 11 цифр (с 8 или +7)."
             )
         return normalized
+
+    def get_type(self, obj):
+        """
+        Возвращает понятное название типа пользователя.
+        """
+        return "Магазин" if obj.type == "shop" else "Покупатель"
 
     def create(self, validated_data):
         # Извлекаем обязательные поля
@@ -198,18 +207,14 @@ class EmailStatusSerializer(serializers.Serializer):
 class CategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = Category
-        fields = ["id", "name"]
-        read_only_fields = [
-            "id",
-        ]
+        fields = ("id", "name")
+        read_only_fields = fields
 
 
 class ShopListSerializer(serializers.ModelSerializer):
-    owner = extend_schema_field(serializers.CharField)(
-        serializers.SerializerMethodField()
-    )
-    categories_count = extend_schema_field(serializers.IntegerField)(serializers.SerializerMethodField())
-    state = extend_schema_field(serializers.CharField)(serializers.SerializerMethodField())
+    owner = serializers.SerializerMethodField()
+    categories_count = serializers.SerializerMethodField()
+    state = serializers.SerializerMethodField()
 
     class Meta:
         model = Shop
@@ -254,11 +259,13 @@ class ShopDetailSerializer(serializers.ModelSerializer):
             "categories",
         )
 
+    @extend_schema_field(serializers.CharField)
     def get_owner(self, obj):
         return (
             f"{obj.user.first_name} {obj.user.last_name}".strip() or obj.user.username
         )
 
+    @extend_schema_field(serializers.BooleanField)
     def get_state(self, obj):
         return "Принимает заказы" if obj.state else "Не принимает заказы"
 
@@ -308,7 +315,6 @@ class ProductInfoSerializer(serializers.ModelSerializer):
         return data
 
 
-
 class ProductSerializer(serializers.ModelSerializer):
     category = serializers.StringRelatedField()
 
@@ -343,7 +349,6 @@ class OrderItemCreateSerializer(serializers.ModelSerializer):
 
 class OrderSerializer(serializers.ModelSerializer):
     order_items = OrderItemSerializer(many=True, read_only=True)
-
     total_price = serializers.IntegerField()
     contact = ContactSerializer(read_only=True)
 
@@ -353,3 +358,66 @@ class OrderSerializer(serializers.ModelSerializer):
             "id", "order_items", "status", "dt", "total_price", "contact"
         ]
         read_only_fields = ["id",]
+
+
+class BasketItemSerializer(serializers.ModelSerializer):
+    product_info = ProductInfoSerializer(read_only=True)
+    product_info_id = serializers.PrimaryKeyRelatedField(
+        queryset=ProductInfo.objects.filter(shop__state=True),
+        source="product_info",
+        write_only=True
+    )
+
+    class Meta:
+        model = OrderItem
+        fields = ("id", "product_info", "product_info_id", "quantity")
+
+
+class BasketItemAddSerializer(serializers.Serializer):
+    """
+    Сериализатор для добавления товара в корзину.
+    Принимает ID ProductInfo и количество.
+    """
+    product_info_id = serializers.PrimaryKeyRelatedField(
+        queryset=ProductInfo.objects.filter(shop__state=True),
+        source="product_info"
+    )
+    quantity = serializers.DecimalField(max_digits=10, decimal_places=2, min_value=1)
+
+    def validate_quantity(self, value):
+        if value.as_integer_ratio()[1] != 1:  # Проверка на целое число (для штук)
+            if self.initial_data.get("product_info_id"):
+                product_info = ProductInfo.objects.filter(id=self.initial_data["product_info_id"]).first()
+                if product_info and product_info.unit_of_measure == "pcs":
+                    raise serializers.ValidationError("Количество должно быть целым числом для штучного товара.")
+        return value
+
+    def validate(self, data):
+        product_info = data["product_info"]
+        quantity = data["quantity"]
+
+        if quantity > product_info.quantity:
+            raise serializers.ValidationError(
+                f"Доступно только {product_info.quantity} шт. товара '{product_info.product.name}'"
+            )
+
+        return data
+
+
+class ProductInfoSearchSerializer(serializers.ModelSerializer):
+    product_name = serializers.CharField(source="product.name", read_only=True)
+    shop = serializers.CharField(source="shop.name", read_only=True)
+
+    class Meta:
+        model = ProductInfo
+        fields = (
+            "id",
+            "product_name",
+            "model",
+            "shop",
+            "price",
+            "price_rrc",
+            "quantity",
+            "unit_of_measure",
+        )
+        read_only_fields = fields

@@ -23,16 +23,20 @@ def delete_expired_tokens():
     jwt_logger.info(f"Удалено {count_deleted} истёкших токенов")
 
 @shared_task(bind=True)
-def send_email_confirmation(self, email: str, code: str):
+def send_email_confirmation(self, email: str, subject: str, message: str, from_email=None):
     from backend.loggers.mail_send_logger import logger as email_logger
     """
     Асинхронная задача с повтоными попытками отправки кода подтверждения на email.
     """
+
+    if not from_email:
+        from_email = settings.DEFAULT_FROM_EMAIL
+
     try:
         sent = django_send_mail(
-            subject="Код подтверждения",
-            message=f"Ваш код подтверждения: {code}",
-            from_email=settings.DEFAULT_FROM_EMAIL,
+            subject=subject,
+            message=message,
+            from_email=from_email,
             recipient_list=[email],
             fail_silently=False,
         )

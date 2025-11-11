@@ -1,22 +1,21 @@
 from __future__ import annotations
 
-from django.urls import include, path
-from rest_framework.routers import SimpleRouter
+from django.urls import path
 
-from backend.views.shop_views import ShopDetailView, ShopListView, ShopProductsView
+from backend.views.shop_views import (
+    CategoryListView,
+    ShopDetailView,
+    ShopListView,
+    ShopProductSearchView,
+    ShopProductsView,
+)
 
-router = SimpleRouter()
-
-def register_shop_urls(router):
-    pass
-
-register_shop_urls(router)
+app_name = "SHOP"
 
 urlpatterns = [
-    path("", include(router.urls)),
     path("list", ShopListView.as_view(), name="shop-list"),
     path("<slug:slug>", ShopDetailView.as_view(), name="shop-detail"),
     path("<slug:slug>/products", ShopProductsView.as_view(), name="shop-products"),
+    path("search/", ShopProductSearchView.as_view(), name="product_search"),
+    path("category/", CategoryListView.as_view(), name="category-list"),
 ]
-
-app_name = "shop"

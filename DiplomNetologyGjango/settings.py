@@ -137,9 +137,7 @@ USE_TZ = True
 
 STATIC_URL = "/static/"
 STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
-STATICFILES_DIRS = (
-    os.path.join(BASE_DIR, "static"),
-)
+STATICFILES_DIRS = []
 
 # Настройки электронной почты (SMTP)
 EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
@@ -254,15 +252,34 @@ SPECTACULAR_SETTINGS = {
     "DESCRIPTION": "API для интернет-магазина: управление пользователями, заказами, магазинами",
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
+    "CACHE": None,
     "TAGS": [
         {
             "name": "USER",
-            "description": "Работа с пользователями: регистрация, авторизация, профиль, контакты.",
+            "description": "Работа с пользователями: регистрация, авторизация, профиль, контакты."
+        },
+        {
+            "name": "SHOP",
+            "description": "Просмотр магазинов, товаров, категорий и поиск."
+        },
+        {
+            "name": "PARTNERS",
+            "description": "API для поставщиков: загрузка прайсов, управление магазином."
+        },
+        {
+            "name": "ORDER",
+            "description": "Управление заказами: корзина, оформление, просмотр."
+        },
+        {
+            "name": "BASKET",
+            "description": "Работа с корзиной: добавление, удаление, просмотр товаров."
         },
     ],
-    "COMPONENT_SPLIT_REQUEST": True,
-    "SORT_OPERATIONS": False,
-    "OPERATION_ID_GENERATOR": lambda method, path, operation: operation["operationId"],
+    "SWAGGER_UI_DIST": "https://cdn.jsdelivr.net/npm/swagger-ui-dist@latest",
+    "SWAGGER_UI_FAVICON_32_32": "https://cdn.jsdelivr.net/npm/swagger-ui-dist@latest/favicon-32x32.png",
+    "REDOC_DIST": "https://cdn.jsdelivr.net/npm/redoc@next",
+    "SCHEMA_PATH_PREFIX": "/api/v1/",
+    "CAMELIZE_NAMES": False,
 }
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"

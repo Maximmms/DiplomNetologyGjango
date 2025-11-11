@@ -1,17 +1,19 @@
 from __future__ import annotations
 
-from django.urls import include, path
-from rest_framework.routers import SimpleRouter
+from django.urls import path
 
-router = SimpleRouter()
+from backend.views.order_views import (
+    CreateOrderFromBasketView,
+    DeleteOrderView,
+    PlaceOrderView,
+    UserOrdersView,
+)
 
-def register_order_urls(router):
-    pass
-
-register_order_urls(router)
+app_name = "ORDER"
 
 urlpatterns = [
-    path("", include(router.urls)),
+    path("", UserOrdersView.as_view(), name="user_orders"),
+    path("create/", CreateOrderFromBasketView.as_view(), name="order-create"),
+    path("delete/", DeleteOrderView.as_view(), name="order-delete"),
+    path("place/", PlaceOrderView.as_view(), name="order-place"),
 ]
-
-app_name = "order"
