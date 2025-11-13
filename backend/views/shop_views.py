@@ -199,7 +199,7 @@ class ShopProductsView(GenericAPIView):
     """
     queryset = (
         Shop.objects.select_related("user")
-        .prefetch_related("categories__products__product_info")
+        .prefetch_related("categories")
         .filter(user__is_active=True)
     )
     serializer_class = ProductInfoSerializer
@@ -233,7 +233,12 @@ class ShopProductsView(GenericAPIView):
         search = request.query_params.get("search", None)
         category_id = request.query_params.get("category_id", None)
 
-        product_infos = shop.products.select_related("product", "product__category")
+        product_infos = (
+            ProductInfo.objects.filter(shop=shop, quantity__gt=0)
+            .select_related("product", "product__category")
+            .prefetch_related("product_parameters__parameter")
+            .order_by("product__category__name", "product__name")
+        )
 
         if search:
             product_infos = product_infos.filter(product__name__icontains=search)

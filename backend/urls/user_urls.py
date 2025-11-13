@@ -22,6 +22,7 @@ def register_user_urls(router):
     router.register(r"register", UserRegisterViewSet, basename="register")
     router.register(r"logout", UserLogoutViewSet, basename="logout")
     router.register(r"password", UserChangePasswordViewSet, basename="password")
+    router.register(r"contact", UserContactViewSet, basename="contact")
     router.register(r"profile", UserProfileViewSet, basename="profile")
 
 app_name = "USER"
@@ -49,11 +50,11 @@ urlpatterns = [
         name="user_verify_email_change",
     ),
     path("login/", UserLoginView.as_view(), name="login"),
-    path(
-        "contact/<int:id>/",
-        UserContactViewSet.as_view(
-            {"put": "update", "patch": "partial_update", "delete": "destroy"}
-        ),
-        name="user_contact_detail",
-    ),
+    # path(
+    #     "contact/<int:id>/",
+    #     UserContactViewSet.as_view(
+    #         {"put": "update", "patch": "partial_update", "delete": "destroy"}
+    #     ),
+    #     name="user_contact_detail",
+    # ),
 ]

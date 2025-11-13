@@ -6,7 +6,12 @@ from django.contrib.auth import get_user_model, update_session_auth_hash
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from django.utils import timezone
-from drf_spectacular.utils import extend_schema, extend_schema_view, inline_serializer
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    extend_schema,
+    extend_schema_view,
+    inline_serializer,
+)
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action, throttle_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -284,6 +289,9 @@ class UserChangePasswordViewSet(viewsets.GenericViewSet):
 
 
 @extend_schema_view(
+    retrieve=extend_schema(
+        parameters=[OpenApiParameter("id", int, OpenApiParameter.PATH)]
+    ),
     list=extend_schema(
         summary="Получить список адресов",
         description="Возвращает все адреса доставки, привязанные к пользователю.",
@@ -359,6 +367,7 @@ class UserContactViewSet(viewsets.GenericViewSet,
     """
     permission_classes = [IsAuthenticated]
     serializer_class = ContactSerializer
+    lookup_field = "pk"
 
     def get_queryset(self):
         return Contact.objects.filter(user=self.request.user)
@@ -554,7 +563,9 @@ class UserSendEmailConfirmationView(APIView):
         try:
             user = User.objects.get(email=normalized_email)
         except User.DoesNotExist:
-            logger.warning(f"Попытка подтвердить email для несуществующего пользователя: {normalized_email}")
+            logger.warning(
+                f"Попытка подтвердить email для несуществующего пользователя: {normalized_email}"
+            )
             return Response(
                 {"error": "Пользователь с таким email не найден."},
                 status=status.HTTP_404_NOT_FOUND
@@ -565,9 +576,10 @@ class UserSendEmailConfirmationView(APIView):
         EmailConfirmation.objects.create(user=user, code=code)
 
         send_email_confirmation.delay(
-            mail=normalized_email,
+            email=normalized_email,
             subject="Код подтверждения",
             message=f"Ваш код подтверждения: {code}\nОн действителен 10 минут.",
+            from_email=None
         )
 
         logger.info(f"Код подтверждения отправлен на email: {normalized_email}")
@@ -718,7 +730,7 @@ class UserChangeEmailRequestView(APIView):
         if User.objects.filter(email=normalized_new_email).exists():
             return Response(
                 {"error": "Пользователь с таким email уже существует."},
-                status=status.HTTP_400_BAD_REQUEST
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
         # Генерируем код
@@ -740,6 +752,7 @@ class UserChangeEmailRequestView(APIView):
             email=normalized_new_email,
             subject="Подтверждение изменения email",
             message=f"Ваш код для подтверждения смены email: {code}\n\nЭто письмо отправлено от администратора сайта.",
+            from_email=None
         )
 
         logger.info(

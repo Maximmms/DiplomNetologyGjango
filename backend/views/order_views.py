@@ -27,7 +27,7 @@ from backend.tasks import send_email_confirmation
     - `sent` — отправлен
     - `delivered` — доставлен
     - `canceled` — отменён
-- `page`, `page_size` — пагинация
+
 
 #### Особенности:
 - Доступ только авторизованным пользователям
@@ -45,20 +45,6 @@ from backend.tasks import send_email_confirmation
                 location=OpenApiParameter.QUERY,
                 description="Фильтр по статусу заказа",
                 enum=[choice[0] for choice in Order.ORDER_STATUS_CHOICES],  # ✅ Используем константу
-                required=False,
-            ),
-            OpenApiParameter(
-                name="page",
-                type=int,
-                location=OpenApiParameter.QUERY,
-                description="Номер страницы",
-                required=False,
-            ),
-            OpenApiParameter(
-                name="page_size",
-                type=int,
-                location=OpenApiParameter.QUERY,
-                description="Количество заказов на странице",
                 required=False,
             ),
         ],
@@ -82,19 +68,19 @@ class UserOrdersView(APIView):
         queryset = (
             Order.objects
             .filter(user=self.request.user)
-            .select_related("contact")
+            .select_related("delivery_address")
             .prefetch_related(
                 Prefetch(
-                    "ordered_items",
+                    "items",
                     queryset=OrderItem.objects.select_related("product_info__shop", "product_info__product")
                 )
             )
-            .order_by("-created_at")
+            .order_by("-dt")
         )
 
         status = self.request.query_params.get("status")
         if status:
-            if status not in dict(Order.STATUS_CHOICES):
+            if status not in dict(Order.ORDER_STATUS_CHOICES):
                 return Order.objects.none()
             queryset = queryset.filter(status=status)
 
@@ -105,39 +91,8 @@ class UserOrdersView(APIView):
         Возвращает список заказов пользователя с пагинацией.
         """
         queryset = self.get_queryset()
-
-        # Применяем пагинацию вручную, так как APIView не делает этого автоматически
-        page = self.paginate_queryset(queryset)
-        if page is not None:
-            serializer = self.serializer_class(page, many=True)
-            return self.get_paginated_response(serializer.data)
-
         serializer = self.serializer_class(queryset, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
-
-    @property
-    def paginator(self):
-        """
-        Возвращает пагинатор из OrderSerializer, если он определён.
-        """
-        if not hasattr(self, "_paginator"):
-            self._paginator = self.serializer_class().pagination_class()
-        return self._paginator
-
-    def paginate_queryset(self, queryset):
-        """
-        Применяет пагинацию к queryset.
-        """
-        if not self.paginator:
-            return None
-        return self.paginator.paginate_queryset(queryset, self.request, view=self)
-
-    def get_paginated_response(self, data):
-        """
-        Возвращает ответ с пагинацией.
-        """
-        assert self.paginator is not None
-        return self.paginator.get_paginated_response(data)
 
 
 @extend_schema_view(
@@ -179,7 +134,7 @@ class CreateOrderFromBasketView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        if not order.ordered_items.exists():
+        if not order.items.exists():
             return Response(
                 {"status": "error", "errors": "Нельзя создать заказ из пустой корзины."},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -360,7 +315,7 @@ class PlaceOrderView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        if not order.ordered_items.exists():
+        if not order.items.exists():
             return Response(
                 {"status": "error", "errors": "Нельзя разместить пустой заказ."},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -373,9 +328,9 @@ class PlaceOrderView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        order.contact = contact
+        order.delivery_address = contact
         order.status = "confirmed"
-        order.save(update_fields=["contact", "status"])
+        order.save(update_fields=["delivery_address", "status"])
 
         self.send_confirmation_email_async(order)
 
@@ -384,7 +339,7 @@ class PlaceOrderView(APIView):
         serializer = self.serializer_class(order)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
-    def send_confirmation_email_async(self, order: Order, recipient_email: str):
+    def send_confirmation_email_async(self, order: Order):
         """
         Отправляет клиенту письмо о подтверждении заказа.
 
@@ -420,13 +375,13 @@ class PlaceOrderView(APIView):
         ]
 
         total_price = 0
-        for item in order.ordered_items.all():
+        for item in order.items.all():
             price = item.quantity * item.product_info.price
             total_price += price
             lines.append(f" - {item.product_info.product.name}: {item.quantity} шт. × {item.product_info.price} ₽ = {price} ₽")
 
         lines.append(f"\nОбщая сумма: {total_price} ₽")
-        lines.append(f"Адрес доставки: {order.contact}")
+        lines.append(f"Адрес доставки: {order.delivery_address}")
         lines.append("\nСпасибо за заказ!")
         lines.append("С уважением, команда вашего интернет-магазина.")
 
@@ -441,7 +396,7 @@ class PlaceOrderView(APIView):
         """
         shop_items = {}
 
-        for item in order.ordered_items.select_related("product_info__shop"):
+        for item in order.items.select_related("product_info__shop"):
             shop = item.product_info.shop
             if shop.user.email:
                 if shop not in shop_items:
@@ -479,7 +434,7 @@ class PlaceOrderView(APIView):
                 f" - {item.product_info.product.name}: {item.quantity} шт. (артикул: {item.product_info.external_id})"
             )
 
-        lines.append(f"\nАдрес доставки: {order.contact}")
+        lines.append(f"\nАдрес доставки: {order.delivery_address}")
         lines.append("Прошу подтвердить готовность к сборке в ближайшее время.")
         lines.append("С уважением, команда интернет-магазина.")
 

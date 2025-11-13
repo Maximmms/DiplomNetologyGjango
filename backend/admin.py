@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from django import forms
 from django.contrib import admin
+from django.contrib.auth.models import Group, Permission
+from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
+from django.db.models.signals import post_migrate
+from django.dispatch import receiver
 from django.utils.translation import gettext_lazy as _
 
 from backend.models import (
@@ -132,7 +136,22 @@ class OrderItemInline(admin.TabularInline):
     verbose_name = _("Позиция заказа")
     verbose_name_plural = _("Позиции заказа")
     fields = ("product_info", "quantity")
-    autocomplete_fields = ("product_info",)
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request).select_related("product_info__product", "product_info__shop")
+        if request.user.groups.filter(name="Магазины").exists():
+            user_shops = request.user.shops.all()
+            if not user_shops.exists():
+                return qs.none()
+            return qs.filter(product_info__shop__in=user_shops)
+        return qs
+
+    def has_change_permission(self, request, obj=None):
+        if request.user.groups.filter(name="Магазины").exists():
+            if obj is not None and hasattr(obj, "product_info"):
+                return obj.product_info.shop in request.user.shops.all()
+            return True
+        return super().has_change_permission(request, obj)
 
 
 class ProductParameterInline(admin.StackedInline):
@@ -143,6 +162,18 @@ class ProductParameterInline(admin.StackedInline):
     fields = ("parameter", "value")
     autocomplete_fields = ("parameter",)
 
+    def has_add_permission(self, request, obj):
+        if request.user.groups.filter(name="Магазины").exists():
+            return True
+        return super().has_add_permission(request, obj)
+
+    def has_change_permission(self, request, obj=None):
+        if request.user.groups.filter(name="Магазины").exists():
+            if obj and obj.product_info.shop in request.user.shops.all():
+                return True
+            return False
+        return super().has_change_permission(request, obj)
+
 
 class ProductInfoInline(admin.StackedInline):
     model = ProductInfo
@@ -151,6 +182,27 @@ class ProductInfoInline(admin.StackedInline):
     verbose_name_plural = _("Информация о продуктах")
     fields = ("shop", "price", "price_rrc", "quantity")
     inlines = [ProductParameterInline]
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request).select_related("shop")
+        if request.user.groups.filter(name="Магазины").exists():
+            user_shops = request.user.shops.all()
+            if not user_shops.exists():
+                return qs.none()
+            return qs.filter(shop__in=user_shops)
+        return qs
+
+    def has_add_permission(self, request, obj):
+        if request.user.groups.filter(name="Магазины").exists():
+            return True
+        return super().has_add_permission(request, obj)
+
+    def has_change_permission(self, request, obj=None):
+        if request.user.groups.filter(name="Магазины").exists():
+            if obj is not None:
+                return obj.shop in request.user.shops.all()
+            return True
+        return super().has_change_permission(request, obj)
 
 
 class ProductInfoInlineForShop(admin.StackedInline):
@@ -238,6 +290,30 @@ class ShopAdmin(admin.ModelAdmin):
     list_display = ("name", "url", "user", "state")
     search_fields = ("name", "url", "state")
     inlines = [ProductInfoInlineForShop]
+    readonly_fields = ["user"]
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request).select_related("user")
+        if request.user.groups.filter(name="Магазины").exists():
+            return qs.filter(user=request.user)
+        return qs
+
+    def has_change_permission(self, request, obj=None):
+        if request.user.groups.filter(name="Магазины").exists():
+            if obj is not None:
+                return obj.user == request.user
+            return True
+        return super().has_change_permission(request, obj)
+
+    def has_add_permission(self, request):
+        if request.user.groups.filter(name="Магазины").exists():
+            return False
+        return super().has_add_permission(request)
+
+    def save_model(self, request, obj, form, change):
+        if request.user.groups.filter(name="Магазины").exists():
+            obj.user = request.user
+        super().save_model(request, obj, form, change)
 
 
 @admin.register(Category)
@@ -258,9 +334,30 @@ class ProductAdmin(admin.ModelAdmin):
     inlines = [ProductInfoInline]
 
     def get_queryset(self, request):
-        return super().get_queryset(request).prefetch_related(
-            "product_infos__parameters"
+        qs = (
+            super()
+            .get_queryset(request)
+            .prefetch_related("product_infos__parameters", "product_infos__shop")
         )
+        if request.user.groups.filter(name="Магазины").exists():
+            user_shops = request.user.shops.all()
+            if not user_shops.exists():
+                return qs.none()
+            return qs.filter(product_infos__shop__in=user_shops).distinct()
+        return qs
+
+    def has_change_permission(self, request, obj=None):
+        if request.user.groups.filter(name="Магазины").exists():
+            if obj is None:
+                return True
+            user_shops = request.user.shops.all()
+            return obj.product_infos.filter(shop__in=user_shops).exists()
+        return super().has_change_permission(request, obj)
+
+    def has_add_permission(self, request):
+        if request.user.groups.filter(name="Магазины").exists():
+            return False
+        return super().has_add_permission(request)
 
     def all_parameters(self, obj):
         if not hasattr(obj, "product_infos"):
@@ -308,9 +405,7 @@ class ProductParameterAdmin(admin.ModelAdmin):
     search_fields = ("parameter__name",)
 
     def get_queryset(self, request):
-        return super().get_queryset(request).select_related(
-            "product_info", "parameter"
-        )
+        return super().get_queryset(request).select_related("product_info", "parameter")
 
 
 @admin.register(Order)
@@ -322,11 +417,21 @@ class OrderAdmin(admin.ModelAdmin):
     readonly_fields = ["dt"]
 
     def get_queryset(self, request):
-        return super().get_queryset(request).select_related(
-            "user"
-        ).prefetch_related(
-            "orderitem_set"
-        )
+        qs = super().get_queryset(request).select_related("user")
+        if request.user.groups.filter(name="Магазины").exists():
+            user_shops = request.user.shops.all()
+            if not user_shops.exists():
+                return qs.none()
+            return qs.filter(items__product_info__shop__in=user_shops).distinct()
+        return qs
+
+    def has_change_permission(self, request, obj=None):
+        if request.user.groups.filter(name="Магазины").exists():
+            if obj is not None:
+                user_shops = request.user.shops.all()
+                return obj.items.filter(product_info__shop__in=user_shops).exists()
+            return True
+        return super().has_change_permission(request, obj)
 
 
 @admin.register(OrderItem)
@@ -380,11 +485,36 @@ class ContactAdmin(admin.ModelAdmin):
         return ""
 
     def get_queryset(self, request):
-        return super().get_queryset(request).select_related(
-            "user"
-        ).prefetch_related(
-            "user__user_phone"
-        )
+        return super().get_queryset(request).select_related("user")
 
     user_email.short_description = "Email пользователя"
     formatted_phone.short_description = "Номер телефона"
+
+
+@receiver(post_migrate)
+def create_shop_group(sender, **kwargs):
+    shop_group, created = Group.objects.get_or_create(name="Магазины")
+
+    # Определяем модели и права
+    models_and_perms = [
+        (Shop, ["view", "change"]),
+        (Product, ["view", "change"]),
+        (ProductInfo, ["view", "add", "change", "delete"]),
+        (ProductParameter, ["view", "add", "change", "delete"]),
+        (Order, ["view", "change"]),
+        (Contact, ["view", "add", "change"]),
+    ]
+
+    for model, perms in models_and_perms:
+        try:
+            content_type = ContentType.objects.get_for_model(model)
+        except Exception:
+            continue
+
+        for perm in perms:
+            codename = f"{perm}_{model._meta.model_name}"
+            try:
+                permission = Permission.objects.get(codename=codename, content_type=content_type)
+                shop_group.permissions.add(permission)
+            except Permission.DoesNotExist:
+                pass

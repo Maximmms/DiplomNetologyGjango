@@ -21,12 +21,13 @@ from django.http import HttpResponse
 from django.urls import include, path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
+
 def health_check(request):
     return HttpResponse("OK", content_type="text/plain")
 
 
 urlpatterns = [
-    path("", health_check, name='health_check'),
+    path("", health_check, name="health_check"),
     path("admin/", admin.site.urls),
     path("schema/", SpectacularAPIView.as_view(), name="schema"),
     path("docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="docs"),

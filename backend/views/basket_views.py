@@ -15,12 +15,17 @@ from rest_framework.views import APIView
 
 from backend.loggers.backend_logger import logger
 from backend.models import Order, OrderItem
-from backend.serializers import BasketItemAddSerializer, BasketItemSerializer
+from backend.serializers import (
+    BasketItemAddSerializer,
+    BasketItemDeleteSerializer,
+    BasketItemSerializer,
+)
 
 
-@extend_schema(
-    summary="Добавить товар(ы) в корзину",
-    description="""
+@extend_schema_view(
+    create=extend_schema(
+        summary="Добавить товар(ы) в корзину",
+        description="""
 Добавляет один или несколько товаров в корзину пользователя.
 
 #### Формат запроса:
@@ -40,82 +45,83 @@ from backend.serializers import BasketItemAddSerializer, BasketItemSerializer
 - json [ { "product_info_id": 1, "quantity": 2 }, { "product_info_id": 3, "quantity": 1 } ]
 - json { "product_info_id": 1, "quantity": 2 }
     """.strip(),
-    tags=["BASKET"],
-    request=BasketItemAddSerializer(many=True),
-    responses={
-        200: inline_serializer(
-            name="BasketAddMultipleResponse",
-            fields={
-                "status": serializers.CharField(help_text="Сообщение об успешном добавлении"),
-                "added": serializers.IntegerField(help_text="Количество добавленных позиций"),
-                "items": inline_serializer(
-                    name="BasketItemAddedResponse",
-                    fields=BasketItemSerializer().get_fields(),
-                    many=True,
-                    help_text="Список добавленных или обновлённых товаров в корзине",
-                ),
-            },
-            help_text="Результат добавления товаров в корзину",
-        ),
-    },
-    examples=[
-        OpenApiExample(
-            "Пример ответа при добавлении одного товара",
-            value={
-                "status": "Добавлено товаров: 1",
-                "added": 1,
-                "items": [
-                    {
-                        "id": 5,
-                        "product_info": {
-                            "id": 1,
-                            "model": "iphone-15",
-                            "price": "99990.00",
-                            "price_rrc": "104990.00",
-                            "quantity": "2.00",
-                            "shop": {
+        tags=["BASKET"],
+        request=BasketItemAddSerializer(many=True),
+        responses={
+            200: inline_serializer(
+                name="BasketAddMultipleResponse",
+                fields={
+                    "status": serializers.CharField(help_text="Сообщение об успешном добавлении"),
+                    "added": serializers.IntegerField(help_text="Количество добавленных позиций"),
+                    "items": inline_serializer(
+                        name="BasketItemAddedResponse",
+                        fields=BasketItemSerializer().get_fields(),
+                        many=True,
+                        help_text="Список добавленных или обновлённых товаров в корзине",
+                    ),
+                },
+                help_text="Результат добавления товаров в корзину",
+            ),
+        },
+        examples=[
+            OpenApiExample(
+                "Пример ответа при добавлении одного товара",
+                value={
+                    "status": "Добавлено товаров: 1",
+                    "added": 1,
+                    "items": [
+                        {
+                            "id": 5,
+                            "product_info": {
                                 "id": 1,
-                                "name": "Электроника 24"
-                            }
+                                "model": "iphone-15",
+                                "price": "99990.00",
+                                "price_rrc": "104990.00",
+                                "quantity": "2.00",
+                                "shop": {
+                                    "id": 1,
+                                    "name": "Электроника 24"
+                                }
+                            },
+                            "quantity": "2.00"
+                        }
+                    ]
+                },
+                response_only=True,
+            ),
+            OpenApiExample(
+                "Пример ответа при добавлении нескольких товаров",
+                value={
+                    "status": "Добавлено товаров: 2",
+                    "added": 2,
+                    "items": [
+                        {
+                            "id": 5,
+                            "product_info": {
+                                "id": 1,
+                                "model": "iphone-15",
+                                "price": "99990.00",
+                                "shop": {"id": 1, "name": "Электроника 24"}
+                            },
+                            "quantity": "2.00"
                         },
-                        "quantity": "2.00"
-                    }
-                ]
-            },
-            response_only=True,
-        ),
-        OpenApiExample(
-            "Пример ответа при добавлении нескольких товаров",
-            value={
-                "status": "Добавлено товаров: 2",
-                "added": 2,
-                "items": [
-                    {
-                        "id": 5,
-                        "product_info": {
-                            "id": 1,
-                            "model": "iphone-15",
-                            "price": "99990.00",
-                            "shop": {"id": 1, "name": "Электроника 24"}
-                        },
-                        "quantity": "2.00"
-                    },
-                    {
-                        "id": 6,
-                        "product_info": {
-                            "id": 3,
-                            "model": "galaxy-buds",
-                            "price": "12990.00",
-                            "shop": {"id": 2, "name": "ТехноМир"}
-                        },
-                        "quantity": "1.00"
-                    }
-                ]
-            },
-            response_only=True,
-        ),
-    ],
-    operation_id="basket_add_items",
+                        {
+                            "id": 6,
+                            "product_info": {
+                                "id": 3,
+                                "model": "galaxy-buds",
+                                "price": "12990.00",
+                                "shop": {"id": 2, "name": "ТехноМир"}
+                            },
+                            "quantity": "1.00"
+                        }
+                    ]
+                },
+                response_only=True,
+            ),
+        ],
+        operation_id="basket_add_items",
+    )
 )
 class BasketAddView(APIView):
     """
@@ -141,7 +147,7 @@ class BasketAddView(APIView):
         try:
             with transaction.atomic():
                 basket, created = Order.objects.get_or_create(
-                    user=request.user, status="basket", defaults={"contact": None}
+                    user=request.user, status="basket", defaults={"delivery_address": None}
                 )
 
                 added_count = 0
@@ -213,13 +219,7 @@ class BasketAddView(APIView):
 - json [ { "id": 5 }, { "id": 6 } ]
         """.strip(),
         tags=["BASKET"],
-        request=inline_serializer(
-            name="BasketItemDeleteRequest",
-            fields={
-                "id": serializers.IntegerField()
-            },
-            many=True
-        ),
+        request=BasketItemDeleteSerializer(many=True),
         responses={
             200: {
                 "type": "object",
@@ -277,40 +277,23 @@ class BasketRemoveView(APIView):
     permission_classes = [IsAuthenticated]
 
     def delete(self, request):
-        """
-        Обрабатывает удаление позиций из корзины.
-        """
         data = request.data
         if isinstance(data, list):
             items_data = data
         else:
             items_data = [data]
 
-        # Валидация: все id — целые числа
-        item_ids = []
-        for item in items_data:
-            if not isinstance(item, dict) or "id" not in item:
-                return Response(
-                    {"error": "Каждый элемент должен содержать поле 'id'"},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            try:
-                item_ids.append(int(item["id"]))
-            except (ValueError, TypeError):
-                return Response(
-                    {"error": "Поле 'id' должно быть числом"},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
-        if not item_ids:
+        serializer = BasketItemDeleteSerializer(data=items_data, many=True)
+        if not serializer.is_valid():
             return Response(
-                {"error": "Не передано ни одного ID"},
+                {"error": "Некорректные данные", "details": serializer.errors},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+        item_ids = [item["id"] for item in serializer.validated_data]
+
         try:
             with transaction.atomic():
-                # Получаем корзину
                 basket = Order.objects.filter(
                     user=request.user,
                     status="basket"
@@ -322,13 +305,12 @@ class BasketRemoveView(APIView):
                         status=status.HTTP_404_NOT_FOUND
                     )
 
-                # Получаем позиции корзины
                 order_items = OrderItem.objects.filter(
                     id__in=item_ids,
                     order=basket
                 )
 
-                if len(order_items) != len(item_ids):
+                if order_items.count() != len(item_ids):
                     found_ids = set(order_items.values_list("id", flat=True))
                     not_found = [item_id for item_id in item_ids if item_id not in found_ids]
                     return Response(
@@ -457,8 +439,8 @@ class BasketView(APIView):
             user=request.user,
             status="basket"
         ).prefetch_related(
-            "ordered_items__product_info__shop",
-            "ordered_items__product_info__product"
+            "items__product_info__shop",
+            "items__product_info__product"
         ).first()
 
         if not basket:
@@ -468,7 +450,7 @@ class BasketView(APIView):
                 "items": []
             }, status=status.HTTP_200_OK)
 
-        items = basket.ordered_items.all()
+        items = basket.items.all()
         serializer = self.serializer_class(items, many=True)
 
         # Вычисляем общую сумму

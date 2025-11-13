@@ -116,6 +116,7 @@ class UserSerializer(serializers.ModelSerializer):
             )
         return normalized
 
+    @extend_schema_field(serializers.CharField)
     def get_type(self, obj):
         """
         Возвращает понятное название типа пользователя.
@@ -221,21 +222,24 @@ class ShopListSerializer(serializers.ModelSerializer):
         fields = (
             "id",
             "name",
+            "slug",
             "url",
             "state",
             "owner",
             "categories_count",
         )
 
+    @extend_schema_field(serializers.CharField)
     def get_owner(self, obj):
         return (
-            f"{obj.user.first_name} {obj.user.last_name}".strip()
-            or obj.user.username
+            f"{obj.user.first_name} {obj.user.last_name}".strip() or obj.user.username
         )
 
+    @extend_schema_field(serializers.BooleanField)
     def get_state(self, obj):
         return "Принимает заказы" if obj.state else "Не принимает заказы"
 
+    @extend_schema_field(serializers.IntegerField)
     def get_categories_count(self, obj):
         return obj.categories.count()
 
@@ -349,16 +353,19 @@ class OrderItemCreateSerializer(serializers.ModelSerializer):
 
 class OrderSerializer(serializers.ModelSerializer):
     order_items = OrderItemSerializer(many=True, read_only=True)
-    total_price = serializers.IntegerField()
-    contact = ContactSerializer(read_only=True)
+    total_price = serializers.SerializerMethodField()
+    delivery_address = ContactSerializer(read_only=True)
 
     class Meta:
         model = Order
         fields = [
-            "id", "order_items", "status", "dt", "total_price", "contact"
+            "id", "order_items", "status", "dt", "total_price", "delivery_address"
         ]
         read_only_fields = ["id",]
 
+    @extend_schema_field(serializers.DecimalField(max_digits=10, decimal_places=2))
+    def get_total_price(self, obj):
+        return sum(item.quantity * item.product_info.price for item in obj.items.all())
 
 class BasketItemSerializer(serializers.ModelSerializer):
     product_info = ProductInfoSerializer(read_only=True)
@@ -371,6 +378,10 @@ class BasketItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = OrderItem
         fields = ("id", "product_info", "product_info_id", "quantity")
+
+
+class BasketItemDeleteSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
 
 
 class BasketItemAddSerializer(serializers.Serializer):

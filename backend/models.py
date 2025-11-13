@@ -291,7 +291,7 @@ class Shop(models.Model):
         always_update=False,
         max_length=120,
         verbose_name="Slug",
-        help_text="Уникальный идентификатор URL (генерируется автоматически)"
+        help_text="Уникальный идентификатор URL (генерируется автоматически)",
     )
     user = models.ForeignKey(
         User,
@@ -334,7 +334,8 @@ class Product(models.Model):
     category = models.ForeignKey(
         Category,
         on_delete=models.CASCADE,
-        verbose_name="Категория"
+        verbose_name="Категория",
+        related_name="products"
     )
     name = models.CharField(
         max_length=255,
@@ -482,6 +483,7 @@ class Order(models.Model):
         auto_now_add=True,
         verbose_name="Дата"
     )
+    delivery_address = models.ForeignKey(Contact, on_delete=models.CASCADE, null=True)
     status = models.CharField(
         max_length=16,
         default="new",
