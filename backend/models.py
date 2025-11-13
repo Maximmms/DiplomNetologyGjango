@@ -13,11 +13,6 @@ from django.core.validators import MinValueValidator
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
-USER_TYPE_CHOICES = (
-    ("buyer", "Покупатель"),
-    ("shop", "Магазин"),
-)
-
 UNITS_OF_MEASURE = [
     # 📏 Длина
     ("m", "метр"),
@@ -133,6 +128,11 @@ class User(AbstractUser, PermissionsMixin):
     """
     Стандартная модель пользователей
     """
+    USER_TYPE_CHOICES = (
+        ("buyer", "Покупатель"),
+        ("shop", "Магазин"),
+    )
+
     objects = UserManager()
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = ("username",)
@@ -185,7 +185,7 @@ class User(AbstractUser, PermissionsMixin):
     type = models.CharField(
         verbose_name="Тип пользователя",
         choices=USER_TYPE_CHOICES,
-        max_length=5,
+        max_length=10,
         default="buyer",
     )
 

@@ -4,6 +4,7 @@ from django.db.models import Q
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import cache_page
 from drf_spectacular.utils import (
+    OpenApiExample,
     OpenApiParameter,
     extend_schema,
     extend_schema_view,
@@ -68,6 +69,38 @@ from backend.serializers import (
             ),
         ],
         responses={200: ShopListSerializer(many=True)},
+        examples=[
+            OpenApiExample(
+                name="Список магазинов",
+                summary="Пример ответа со списком магазинов",
+                value={
+                    "status": True,
+                    "results": [
+                        {
+                            "id": 1,
+                            "name": "Электроника-24",
+                            "slug": "elektronika-24",
+                            "url": "https://example.com/shop.xml",
+                            "state": True,
+                            "state_display": "Принимает заказы",
+                            "user": "shop_user",
+                            "categories": [
+                                {"id": 1, "name": "Смартфоны"},
+                                {"id": 2, "name": "Наушники"}
+                            ]
+                        }
+                    ]
+                },
+                response_only=True,
+            ),
+            OpenApiExample(
+                name="Пример запроса с параметрами",
+                summary="GET /api/shop/?search=электроника&page=1",
+                description="Пример вызова с query-параметрами",
+                value=None,
+                request_only=True,
+            )
+        ],
         operation_id="shop_list",
     )
 )
@@ -133,6 +166,26 @@ class ShopListView(generics.ListAPIView):
                 required=True,
             )
         ],
+        examples=[
+            OpenApiExample(
+                name="Детали магазина",
+                summary="Пример ответа с информацией о магазине",
+                value={
+                    "id": 1,
+                    "name": "Электроника-24",
+                    "slug": "elektronika-24",
+                    "url": "https://example.com/shop.xml",
+                    "state": True,
+                    "state_display": "Принимает заказы",
+                    "user": "shop_user",
+                    "categories": [
+                        {"id": 1, "name": "Смартфоны"},
+                        {"id": 2, "name": "Наушники"}
+                    ]
+                },
+                response_only=True,
+            )
+        ],
         operation_id="shop_retrieve",
     )
 )
@@ -187,6 +240,52 @@ class CategoryPagination(PageNumberPagination):
             OpenApiParameter("page_size", int, OpenApiParameter.QUERY, "Количество категорий на странице", False),
         ],
         responses={200: {"type": "object", "properties": {"status": {"type": "boolean"}, "results": {"type": "object"}}}},
+        examples=[
+            OpenApiExample(
+                name="Товары магазина",
+                summary="Пример ответа с товарами по категориям",
+                value={
+                    "status": True,
+                    "results": {
+                        "Смартфоны": [
+                            {
+                                "id": 1,
+                                "name": "iPhone 15",
+                                "model": "Apple iPhone 15 128GB",
+                                "price": 100000,
+                                "price_rrc": 105000,
+                                "quantity": 10,
+                                "parameters": [
+                                    {"parameter": "Цвет", "value": "Чёрный"},
+                                    {"parameter": "ОЗУ", "value": "6 ГБ"}
+                                ]
+                            }
+                        ],
+                        "Наушники": [
+                            {
+                                "id": 2,
+                                "name": "AirPods Pro",
+                                "model": "Apple AirPods Pro",
+                                "price": 25000,
+                                "price_rrc": 27000,
+                                "quantity": 5,
+                                "parameters": [
+                                    {"parameter": "Тип", "value": "Беспроводные"}
+                                ]
+                            }
+                        ]
+                    }
+                },
+                response_only=True,
+            ),
+            OpenApiExample(
+                name="Пример запроса с параметрами",
+                summary="GET /api/shop/products/elektronika-24/?search=iPhone&category_id=1",
+                description="Пример вызова с query-параметрами",
+                value=None,
+                request_only=True,
+            )
+        ],
         operation_id="shop_products",
     )
 )
@@ -278,7 +377,7 @@ class ShopProductsView(GenericAPIView):
 
 
 @extend_schema_view(
-    get=extend_schema(  # ← Добавлено 'get='
+    get=extend_schema(
         summary="Поиск товаров по магазинам",
         description="""
 Выполняет поиск товаров по названию по всем магазинам.
@@ -287,7 +386,7 @@ class ShopProductsView(GenericAPIView):
 - `search` — ключевое слово для поиска (обязательный)
 - `page`, `page_size` — пагинация
     """.strip(),
-        tags=["SHOP"],  # ← Заглавными
+        tags=["SHOP"],
         parameters=[
             OpenApiParameter(
                 name="search",
@@ -325,7 +424,46 @@ class ShopProductsView(GenericAPIView):
                 },
             ),
         },
-        operation_id="product_search",  # ← Уникальный ID
+        examples=[
+            OpenApiExample(
+                name="Пример запроса поиска",
+                summary="GET /api/shop/search/?search=iPhone&page=1",
+                description="Пример вызова с параметрами",
+                value=None,
+                request_only=True,
+            ),
+            OpenApiExample(
+                name="Результаты поиска",
+                summary="Пример ответа с результатами поиска",
+                value={
+                    "count": 2,
+                    "next": None,
+                    "previous": None,
+                    "results": [
+                        {
+                            "id": 1,
+                            "name": "iPhone 15",
+                            "model": "Apple iPhone 15 128GB",
+                            "price": 100000,
+                            "shop": "Электроника-24",
+                            "shop_state": True,
+                            "category": "Смартфоны"
+                        },
+                        {
+                            "id": 3,
+                            "name": "iPhone 14",
+                            "model": "Apple iPhone 14 128GB",
+                            "price": 85000,
+                            "shop": "ТехноМир",
+                            "shop_state": True,
+                            "category": "Смартфоны"
+                        }
+                    ]
+                },
+                response_only=True,
+            )
+        ],
+        operation_id="product_search",
     )
 )
 class ShopProductSearchView(generics.ListAPIView):
@@ -376,9 +514,6 @@ class ShopProductSearchView(generics.ListAPIView):
 #### Параметры:
 - `search` — фильтрация по частичному совпадению с названием категории
 - `page`, `page_size` — пагинация
-
-#### Пример ответа:
-json { "count": 3, "next": null, "previous": null, "results": [ { "id": 1, "name": "Смартфоны" }, { "id": 2, "name": "Ноутбуки" } ] }
         """.strip(),
         tags=["SHOP"],
         parameters=[
@@ -416,6 +551,30 @@ json { "count": 3, "next": null, "previous": null, "results": [ { "id": 1, "name
                 ),
             },
         ),
+        examples=[
+            OpenApiExample(
+                name="Список категорий",
+                summary="Пример ответа со списком категорий",
+                value={
+                    "count": 3,
+                    "next": None,
+                    "previous": None,
+                    "results": [
+                        {"id": 1, "name": "Смартфоны"},
+                        {"id": 2, "name": "Ноутбуки"},
+                        {"id": 3, "name": "Наушники"}
+                    ]
+                },
+                response_only=True,
+            ),
+            OpenApiExample(
+                name="Пример запроса с поиском",
+                summary="GET /api/shop/categories/?search=смарт",
+                description="Пример вызова с параметром search",
+                value=None,
+                request_only=True,
+            )
+        ],
         operation_id="category_list",
     )
 )

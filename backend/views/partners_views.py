@@ -91,7 +91,6 @@ def process_shop_data_async(self,data, user_id):
                 slug=slug,
                 user=user,
                 state=True,
-                # другие поля при необходимости
             )
             logger.info(
                 f"Создан новый магазин: {shop.name} (slug={shop.slug}) для пользователя {user.email}"
@@ -336,8 +335,26 @@ goods:
             },
             description="Пример структуры файла для загрузки",
             request_only=False,
-            response_only=False,
-        )
+        ),
+        OpenApiExample(
+            name="Успешная загрузка",
+            summary="Пример ответа при успешной отправке файла",
+            value={
+                "status": True,
+                "message": "Файл принят. Обработка началась.",
+                "task_id": "c3a5f8b2-1d2e-4f1a-9c1b-2e3d4f5a6b7c",
+            },
+            response_only=True,
+        ),
+        OpenApiExample(
+            name="Ошибка валидации",
+            summary="Пример ответа при ошибке",
+            value={
+                "status": False,
+                "errors": ["Поддерживаются только .yaml или .yml файлы"],
+            },
+            response_only=True,
+        ),
     ],
 )
 @method_decorator(never_cache, name="dispatch")
@@ -418,6 +435,23 @@ class PartnerPriceUploadView(APIView):
                 }
             }
         },
+        examples=[
+            OpenApiExample(
+                name="Текущий статус магазина",
+                summary="Пример ответа с активным статусом",
+                value={
+                    "state": True,
+                    "shop_name": "Электроника-24"
+                },
+                response_only=True,
+            ),
+            OpenApiExample(
+                name="Магазин не найден",
+                summary="Пример ответа при отсутствии магазина",
+                value={"error": "Магазин не найден."},
+                response_only=True,
+            ),
+        ],
         operation_id="partner_shop_state_get",
     ),
     post=extend_schema(
@@ -460,6 +494,29 @@ class PartnerPriceUploadView(APIView):
                 }
             }
         },
+        examples=[
+            OpenApiExample(
+                name="Изменение статуса",
+                summary="Пример запроса на активацию магазина",
+                value={"state": True},
+                request_only=True,
+            ),
+            OpenApiExample(
+                name="Успешное обновление",
+                summary="Пример успешного ответа",
+                value={
+                    "state": True,
+                    "message": "Статус магазина обновлён."
+                },
+                response_only=True,
+            ),
+            OpenApiExample(
+                name="Ошибка ввода",
+                summary="Пример ошибки при неверном формате",
+                value={"error": "Поле 'state' должно быть true или false."},
+                response_only=True,
+            ),
+        ],
         operation_id="partner_shop_state_post",
     )
 )
@@ -532,25 +589,7 @@ class PartnerShopStateView(APIView):
         summary="Получить заказы для магазина",
         description="""
 Возвращает список заказов, содержащих товары из текущего магазина.
-
-#### Что возвращается:
-- Заказы, в которых есть товары из этого магазина.
-- Для каждого заказа:
-    - ID заказа
-    - Статус заказа
-    - Покупатель (email, имя, фамилия)
-    - Контактная информация
-    - Список товаров из этого магазина с ценой, количеством и единицей измерения
-    - Общая сумма товаров из этого магазина
-
-#### Параметры фильтрации:
-- `status` — фильтр по статусу заказа (например: `new`, `confirmed`, `assembled`, `sent`, `delivered`, `canceled`)
-- `date_from`, `date_to` — фильтрация по дате создания заказа
-
-#### Особенности:
-- Доступ только авторизованным пользователям с типом `shop`.
-- Возвращаются только те позиции заказа, которые относятся к магазину.
-- Сумма рассчитывается только по товарам магазина.
+Поддерживает фильтрацию по статусу и дате.
         """.strip(),
         tags=["PARTNERS"],
         parameters=[
@@ -586,34 +625,52 @@ class PartnerShopStateView(APIView):
                         "order_id": {"type": "integer"},
                         "status": {"type": "string"},
                         "created_at": {"type": "string", "format": "date-time"},
-                        "user": {
-                            "type": "object",
-                            "properties": {
-                                "email": {"type": "string"},
-                                "first_name": {"type": "string"},
-                                "last_name": {"type": "string"},
-                            },
-                        },
+                        "user": {"type": "object", "properties": {"email": {"type": "string"}}},
                         "contact": {"type": "string"},
-                        "items": {
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "product": {"type": "string"},
-                                    "model": {"type": "string"},
-                                    "quantity": {"type": "number"},
-                                    "unit_of_measure": {"type": "string"},
-                                    "price": {"type": "number"},
-                                    "total": {"type": "number"},
-                                },
-                            },
-                        },
+                        "items": {"type": "array", "items": {"type": "object"}},
                         "total_amount": {"type": "number"},
                     },
                 },
             }
         },
+        examples=[
+            OpenApiExample(
+                name="Список заказов",
+                summary="Пример ответа с двумя заказами",
+                value=[
+                    {
+                        "order_id": 1,
+                        "status": "confirmed",
+                        "created_at": "2024-04-05T10:00:00Z",
+                        "user": {
+                            "email": "buyer@example.com",
+                            "first_name": "Иван",
+                            "last_name": "Иванов"
+                        },
+                        "contact": "+79991234567",
+                        "items": [
+                            {
+                                "product": "iPhone 15",
+                                "model": "Apple iPhone 15",
+                                "quantity": 1.0,
+                                "unit_of_measure": "шт",
+                                "price": 100000.0,
+                                "total": 100000.0
+                            }
+                        ],
+                        "total_amount": 100000.0
+                    }
+                ],
+                response_only=True,
+            ),
+            OpenApiExample(
+                name="Пример запроса с фильтром",
+                summary="GET /api/partners/orders/?status=confirmed&date_from=2024-04-01",
+                description="Пример вызова с query-параметрами",
+                value=None,
+                request_only=True,
+            ),
+        ],
         operation_id="partner_orders",
     )
 )
@@ -717,29 +774,6 @@ class PartnerOrdersView(APIView):
         summary="Подтвердить сборку своей части заказа",
         description="""
 Позволяет магазину подтвердить, что он готов собрать свои товары из заказа.
-
-#### Условия:
-- Пользователь должен быть авторизован и иметь тип `shop`.
-- Магазин должен быть владельцем хотя бы одного товара в заказе.
-- Заказ должен находиться в статусе `confirmed`.
-- Количество товара на складе должно быть достаточным.
-
-#### Процесс:
-1. Находит заказ по `order_id`.
-2. Находит позиции заказа, относящиеся к магазину.
-3. Проверяет наличие товаров.
-4. Уменьшает количество на складе.
-5. Устанавливает флаг `shop_confirmed = True` для этих позиций.
-
-#### Особенности:
-- Статус заказа **не меняется сразу** на `assembled`.
-- Статус `assembled` будет установлен **только когда все магазины** подтвердят свои позиции.
-- Это позволяет корректно обрабатывать заказы с товарами из нескольких магазинов.
-
-#### Ответ:
-- Возвращает обновлённый заказ.
-- Если все магазины подтвердили — статус автоматически меняется на `assembled`.
-- Также клиенту отправляется письмо о готовности заказа к отправке.
         """.strip(),
         tags=["PARTNERS"],
         request={
@@ -752,6 +786,52 @@ class PartnerOrdersView(APIView):
             }
         },
         responses={200: OrderSerializer, 400: {"type": "object"}, 404: {"type": "object"}},
+        examples=[
+            OpenApiExample(
+                name="Подтверждение заказа",
+                summary="Пример запроса на подтверждение",
+                value={"order_id": 1},
+                request_only=True,
+            ),
+            OpenApiExample(
+                name="Успех",
+                summary="Пример успешного ответа",
+                value={
+                    "id": 1,
+                    "status": "assembled",
+                    "created_at": "2024-04-05T10:00:00Z",
+                    "user": 1,
+                    "contact": 1,
+                    "ordered_items": [
+                        {
+                            "id": 1,
+                            "order": 1,
+                            "product_info": 1,
+                            "quantity": "1.00",
+                            "shop_confirmed": True
+                        }
+                    ]
+                },
+                response_only=True,
+            ),
+            OpenApiExample(
+                name="Нехватка товара",
+                summary="Пример ошибки при нехватке на складе",
+                value={
+                    "status": "error",
+                    "errors": "Недостаточно товара на складе",
+                    "details": [
+                        {
+                            "product": "iPhone 15",
+                            "model": "Apple iPhone 15",
+                            "available": 0,
+                            "ordered": 1
+                        }
+                    ]
+                },
+                response_only=True,
+            ),
+        ],
         operation_id="partner_order_confirm",
     )
 )

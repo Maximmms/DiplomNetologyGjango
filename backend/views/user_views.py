@@ -7,7 +7,7 @@ from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from django.utils import timezone
 from drf_spectacular.utils import (
-    OpenApiParameter,
+    OpenApiExample,
     extend_schema,
     extend_schema_view,
     inline_serializer,
@@ -46,19 +46,66 @@ User = get_user_model()
 - Поле `type` может принимать одно из двух значений: `shop` или `buyer`.
     - `shop` — пользователь представляет магазин.
     - `buyer` — обычный покупатель.
+- Для `shop` обязательны поля: `company`, `position`.
+- Для `buyer` поля `company` и `position` указывать не нужно.
         """.strip(),
         tags=["USER"],
         request=UserSerializer,
+        examples=[
+            OpenApiExample(
+                name="Регистрация магазина",
+                summary="Пример регистрации пользователя-магазина",
+                value={
+                    "username": "shop123",
+                    "email": "shop@example.com",
+                    "password": "strongpass123",
+                    "phone_number": "79991234567",
+                    "company": "ООО Техника",
+                    "position": "Менеджер",
+                    "type": "shop"
+                },
+                request_only=True,
+            ),
+            OpenApiExample(
+                name="Регистрация покупателя",
+                summary="Пример регистрации обычного покупателя",
+                value={
+                    "username": "buyer123",
+                    "email": "buyer@example.com",
+                    "password": "strongpass123",
+                    "first_name": "Иван",
+                    "last_name": "Иванов",
+                    "phone_number": "79997654321",
+                    "type": "buyer"
+                },
+                request_only=True,
+            )
+        ],
         responses={
             201: {
                 "type": "object",
                 "properties": {
                     "refresh": {"type": "string", "example": "eyJ..."},
                     "access": {"type": "string", "example": "eyJ..."}
-                }
+                },
+                "description": "JWT-токены после успешной регистрации"
             },
-            400: {"type": "object", "properties": {"error": {"type": "string"}}},
-            500: {"type": "object", "properties": {"error": {"type": "string"}}},
+            400: {
+                "type": "object",
+                "properties": {
+                    "error": {"type": "string"},
+                    "company": {"type": "array", "items": {"type": "string"}},
+                    "position": {"type": "array", "items": {"type": "string"}}
+                },
+                "description": "Ошибки валидации, например: 'company' обязательно для shop"
+            },
+            500: {
+                "type": "object",
+                "properties": {
+                    "error": {"type": "string"}
+                },
+                "description": "Внутренняя ошибка сервера"
+            }
         },
         operation_id="user_register",
     )
@@ -83,7 +130,8 @@ class UserRegisterViewSet(viewsets.GenericViewSet, mixins.CreateModelMixin):
 
         try:
             user = serializer.save()
-        except Exception:
+        except Exception as e:
+            logger.error(f"Ошибка при создании пользователя: {e}")
             return Response(
                 {"error": "Ошибка при создании пользователя"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -116,13 +164,25 @@ class UserRegisterViewSet(viewsets.GenericViewSet, mixins.CreateModelMixin):
                 "required": ["email", "password"]
             }
         },
+        examples=[
+            OpenApiExample(
+                name="Успешный вход",
+                summary="Пример запроса на вход",
+                value={
+                    "email": "user@example.com",
+                    "password": "strongpassword123"
+                },
+                request_only=True,
+            )
+        ],
         responses={
             200: {
                 "type": "object",
                 "properties": {
                     "refresh": {"type": "string", "example": "eyJ..."},
                     "access": {"type": "string", "example": "eyJ..."}
-                }
+                },
+                "description": "JWT-токены после успешного входа"
             },
             400: {"type": "object", "properties": {"error": {"type": "string"}}},
             401: {"type": "object", "properties": {"error": {"type": "string"}}},
@@ -196,6 +256,14 @@ class UserLoginView(APIView):
             name="LogoutRequest",
             fields={"refresh_token": serializers.CharField()}
         ),
+        examples=[
+            OpenApiExample(
+                name="Выход из системы",
+                summary="Пример отправки refresh-токена для выхода",
+                value={"refresh_token": "eyJ..."},
+                request_only=True,
+            )
+        ],
         responses={
             200: {"type": "object", "properties": {"success": {"type": "string"}}},
             400: {"type": "object", "properties": {"error": {"type": "string"}}},
@@ -244,6 +312,17 @@ class UserLogoutViewSet(viewsets.GenericViewSet, mixins.CreateModelMixin):
         description="Позволяет авторизованному пользователю изменить свой пароль.",
         tags=["USER"],
         request=ChangePasswordSerializer,
+        examples=[
+            OpenApiExample(
+                name="Смена пароля",
+                summary="Пример запроса на смену пароля",
+                value={
+                    "old_password": "oldpass123",
+                    "new_password": "newstrongpass456"
+                },
+                request_only=True,
+            )
+        ],
         responses={
             200: {"type": "object", "properties": {"success": {"type": "string"}}},
             400: {"type": "object", "properties": {"error": {"type": "string"}}},
@@ -289,14 +368,29 @@ class UserChangePasswordViewSet(viewsets.GenericViewSet):
 
 
 @extend_schema_view(
-    retrieve=extend_schema(
-        parameters=[OpenApiParameter("id", int, OpenApiParameter.PATH)]
-    ),
     list=extend_schema(
         summary="Получить список адресов",
         description="Возвращает все адреса доставки, привязанные к пользователю.",
         tags=["USER"],
         responses={200: ContactSerializer(many=True)},
+        examples=[
+            OpenApiExample(
+                name="Список адресов",
+                value=[
+                    {
+                        "id": 1,
+                        "city": "Москва",
+                        "street": "Ленина",
+                        "house": "10",
+                        "structure": "2",
+                        "building": "А",
+                        "apartment": "15",
+                        "phone": "+79991234567"
+                    }
+                ],
+                response_only=True,
+            )
+        ],
         operation_id="user_contact_list",
     ),
     create=extend_schema(
@@ -304,6 +398,19 @@ class UserChangePasswordViewSet(viewsets.GenericViewSet):
         description="Создаёт новый адрес доставки.",
         tags=["USER"],
         request=ContactSerializer,
+        examples=[
+            OpenApiExample(
+                name="Добавление адреса",
+                value={
+                    "city": "Санкт-Петербург",
+                    "street": "Невский",
+                    "house": "25",
+                    "apartment": "100",
+                    "phone": "+79998765432"
+                },
+                request_only=True,
+            )
+        ],
         responses={201: ContactSerializer, 400: dict},
         operation_id="user_contact_create",
     ),
@@ -312,6 +419,19 @@ class UserChangePasswordViewSet(viewsets.GenericViewSet):
         description="Полностью обновляет указанный адрес.",
         tags=["USER"],
         request=ContactSerializer,
+        examples=[
+            OpenApiExample(
+                name="Полное обновление адреса",
+                value={
+                    "city": "Екатеринбург",
+                    "street": "Ленина",
+                    "house": "5",
+                    "apartment": "10",
+                    "phone": "+79991112233"
+                },
+                request_only=True,
+            )
+        ],
         responses={200: ContactSerializer, 400: dict, 404: dict},
         operation_id="user_contact_update",
     ),
@@ -320,6 +440,13 @@ class UserChangePasswordViewSet(viewsets.GenericViewSet):
         description="Обновляет только указанные поля адреса.",
         tags=["USER"],
         request=ContactSerializer,
+        examples=[
+            OpenApiExample(
+                name="Частичное обновление",
+                value={"apartment": "20", "phone": "+79993334455"},
+                request_only=True,
+            )
+        ],
         responses={200: ContactSerializer, 400: dict, 404: dict},
         operation_id="user_contact_partial_update",
     ),
@@ -327,7 +454,18 @@ class UserChangePasswordViewSet(viewsets.GenericViewSet):
         summary="Удалить адрес",
         description="Удаляет указанный адрес доставки.",
         tags=["USER"],
-        responses={204: dict, 404: dict},
+        responses={
+            204: {"description": "Адрес успешно удалён"},
+            404: {"type": "object", "properties": {"error": {"type": "string"}}}
+        },
+        examples=[
+            OpenApiExample(
+                name="Успешное удаление",
+                description="Адрес удалён",
+                value={},
+                response_only=True,
+            )
+        ],
         operation_id="user_contact_destroy",
     ),
     me=extend_schema(
@@ -349,6 +487,33 @@ class UserChangePasswordViewSet(viewsets.GenericViewSet):
                 "addresses": ContactSerializer(many=True),
             },
         ),
+        examples=[
+            OpenApiExample(
+                name="Профиль и адреса",
+                value={
+                    "user_id": 1,
+                    "username": "buyer123",
+                    "email": "buyer@example.com",
+                    "first_name": "Иван",
+                    "last_name": "Иванов",
+                    "phone_number": "+79991234567",
+                    "company": None,
+                    "position": None,
+                    "type": "Покупатель",
+                    "addresses": [
+                        {
+                            "id": 1,
+                            "city": "Москва",
+                            "street": "Ленина",
+                            "house": "10",
+                            "apartment": "15",
+                            "phone": "+79991234567"
+                        }
+                    ]
+                },
+                response_only=True,
+            )
+        ],
         operation_id="user_contact_me",
     ),
 )
@@ -466,6 +631,24 @@ class UserContactViewSet(viewsets.GenericViewSet,
         """.strip(),
         tags=["USER"],
         responses={200: UserSerializer},
+        examples=[
+            OpenApiExample(
+                name="Профиль пользователя",
+                value={
+                    "id": 1,
+                    "email": "user@example.com",
+                    "username": "user123",
+                    "first_name": "Иван",
+                    "last_name": "Иванов",
+                    "phone_number": "+79991234567",
+                    "company": "ООО Техника",
+                    "position": "Менеджер",
+                    "type": "shop",
+                    "contacts": []
+                },
+                response_only=True,
+            )
+        ],
         operation_id="user_profile_retrieve",
     ),
     partial_update=extend_schema(
@@ -478,12 +661,21 @@ class UserContactViewSet(viewsets.GenericViewSet,
         """.strip(),
         tags=["USER"],
         request=UserSerializer,
+        examples=[
+            OpenApiExample(
+                name="Частичное обновление профиля",
+                value={
+                    "first_name": "Петр",
+                    "last_name": "Петров",
+                    "phone_number": "+79998887766"
+                },
+                request_only=True,
+            )
+        ],
         responses={200: UserSerializer, 400: dict, 403: dict},
         operation_id="user_profile_partial_update",
     ),
-    update=extend_schema(
-        exclude=True
-    ),
+    update=extend_schema(exclude=True),
 )
 class UserProfileViewSet(viewsets.GenericViewSet, mixins.RetrieveModelMixin, mixins.UpdateModelMixin):
     """

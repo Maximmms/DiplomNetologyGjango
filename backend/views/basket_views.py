@@ -23,7 +23,7 @@ from backend.serializers import (
 
 
 @extend_schema_view(
-    create=extend_schema(
+    post=extend_schema(
         summary="Добавить товар(ы) в корзину",
         description="""
 Добавляет один или несколько товаров в корзину пользователя.
@@ -65,7 +65,26 @@ from backend.serializers import (
         },
         examples=[
             OpenApiExample(
-                "Пример ответа при добавлении одного товара",
+                name="Добавление одного товара",
+                summary="Пример запроса на добавление одного товара",
+                value={
+                    "product_info_id": 1,
+                    "quantity": 2
+                },
+                request_only=True,
+            ),
+            OpenApiExample(
+                name="Добавление нескольких товаров",
+                summary="Пример запроса на добавление нескольких товаров",
+                value=[
+                    {"product_info_id": 1, "quantity": 2},
+                    {"product_info_id": 3, "quantity": 1}
+                ],
+                request_only=True,
+            ),
+            OpenApiExample(
+                name="Пример ответа при добавлении одного товара",
+                summary="Ответ API после успешного добавления",
                 value={
                     "status": "Добавлено товаров: 1",
                     "added": 1,
@@ -90,7 +109,8 @@ from backend.serializers import (
                 response_only=True,
             ),
             OpenApiExample(
-                "Пример ответа при добавлении нескольких товаров",
+                name="Пример ответа при добавлении нескольких товаров",
+                summary="Ответ при добавлении нескольких позиций",
                 value={
                     "status": "Добавлено товаров: 2",
                     "added": 2,
@@ -244,12 +264,14 @@ class BasketAddView(APIView):
         },
         examples=[
             OpenApiExample(
-                "Удаление одного товара",
+                name="Удаление одного товара",
+                summary="Пример запроса на удаление одного товара",
                 value={"id": 5},
                 request_only=True,
             ),
             OpenApiExample(
-                "Удаление нескольких товаров",
+                name="Удаление нескольких товаров",
+                summary="Пример запроса на удаление нескольких товаров",
                 value=[
                     {"id": 5},
                     {"id": 6}
@@ -257,10 +279,20 @@ class BasketAddView(APIView):
                 request_only=True,
             ),
             OpenApiExample(
-                "Пример успешного ответа",
+                name="Пример успешного ответа",
+                summary="Ответ API после успешного удаления",
                 value={
                     "status": "Удалено 2 позиции из корзины",
                     "deleted": 2
+                },
+                response_only=True,
+            ),
+            OpenApiExample(
+                name="Ошибка: позиции не найдены",
+                summary="Пример ответа при попытке удалить несуществующие позиции",
+                value={
+                    "error": "Некоторые позиции не найдены или не принадлежат корзине",
+                    "invalid_ids": [7, 8]
                 },
                 response_only=True,
             ),
@@ -382,7 +414,8 @@ class BasketRemoveView(APIView):
         },
         examples=[
             OpenApiExample(
-                "Корзина с товарами",
+                name="Корзина с товарами",
+                summary="Пример ответа с двумя товарами",
                 value={
                     "total_amount": "125000.00",
                     "items": [
@@ -411,7 +444,8 @@ class BasketRemoveView(APIView):
                 response_only=True,
             ),
             OpenApiExample(
-                "Пустая корзина",
+                name="Пустая корзина",
+                summary="Ответ при отсутствии товаров в корзине",
                 value={
                     "total_amount": "0.00",
                     "items": []

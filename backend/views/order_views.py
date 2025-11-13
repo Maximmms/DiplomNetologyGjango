@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from django.db import transaction
 from django.db.models import Prefetch
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
+from drf_spectacular.utils import (
+    OpenApiExample,
+    OpenApiParameter,
+    extend_schema,
+    extend_schema_view,
+)
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -28,7 +33,6 @@ from backend.tasks import send_email_confirmation
     - `delivered` — доставлен
     - `canceled` — отменён
 
-
 #### Особенности:
 - Доступ только авторизованным пользователям
 - В заказе отображаются:
@@ -44,11 +48,57 @@ from backend.tasks import send_email_confirmation
                 type=str,
                 location=OpenApiParameter.QUERY,
                 description="Фильтр по статусу заказа",
-                enum=[choice[0] for choice in Order.ORDER_STATUS_CHOICES],  # ✅ Используем константу
+                enum=[choice[0] for choice in Order.ORDER_STATUS_CHOICES],
                 required=False,
             ),
         ],
         responses={200: OrderSerializer(many=True)},
+        examples=[
+            OpenApiExample(
+                name="Список заказов",
+                summary="Пример ответа со списком заказов",
+                value=[
+                    {
+                        "id": 2,
+                        "status": "new",
+                        "created_at": "2024-05-01T10:00:00Z",
+                        "total_amount": 100000,
+                        "contact": {
+                            "id": 1,
+                            "city": "Москва",
+                            "street": "Ленина",
+                            "house": "10",
+                            "phone": "+79991234567"
+                        },
+                        "items": [
+                            {
+                                "id": 2,
+                                "product_info": {
+                                    "id": 1,
+                                    "name": "iPhone 15",
+                                    "model": "Apple iPhone 15 128GB",
+                                    "price": 100000,
+                                    "shop": {
+                                        "id": 1,
+                                        "name": "Электроника-24"
+                                    }
+                                },
+                                "quantity": 1,
+                                "shop_confirmed": False
+                            }
+                        ]
+                    }
+                ],
+                response_only=True,
+            ),
+            OpenApiExample(
+                name="Пример запроса с фильтром",
+                summary="GET /api/order/?status=confirmed",
+                description="Передача параметра status через query string",
+                value=None,
+                request_only=True,
+            ),
+        ],
         operation_id="order_list",
     )
 )
@@ -113,7 +163,42 @@ class UserOrdersView(APIView):
 - Возвращает данные заказа в статусе 'new'.
         """.strip(),
         tags=["ORDER"],
-        responses={200: OrderSerializer, 400: {"type": "object", "errors": "string"}, 404: {"type": "object", "errors": "string"}},
+        responses={200: OrderSerializer, 400: {"type": "object"}, 404: {"type": "object"}},
+        examples=[
+            OpenApiExample(
+                name="Успешное создание заказа",
+                summary="Пример успешного ответа",
+                value={
+                    "id": 2,
+                    "status": "new",
+                    "created_at": "2024-05-01T10:00:00Z",
+                    "total_amount": 50000,
+                    "items": [
+                        {
+                            "id": 2,
+                            "product_info": {
+                                "id": 3,
+                                "name": "AirPods",
+                                "model": "Apple AirPods Pro",
+                                "price": 25000,
+                                "shop": {
+                                    "id": 1,
+                                    "name": "Электроника-24"
+                                }
+                            },
+                            "quantity": 2
+                        }
+                    ]
+                },
+                response_only=True,
+            ),
+            OpenApiExample(
+                name="Корзина пуста",
+                summary="Пример ошибки при пустой корзине",
+                value={"status": "error", "errors": "Нельзя создать заказ из пустой корзины."},
+                response_only=True,
+            ),
+        ],
         operation_id="order_create",
     )
 )
@@ -188,6 +273,26 @@ class CreateOrderFromBasketView(APIView):
             400: {"type": "object", "properties": {"status": "string", "errors": "string"}},
             404: {"type": "object", "properties": {"status": "string", "errors": "string"}}
         },
+        examples=[
+            OpenApiExample(
+                name="Успешное удаление",
+                summary="Пример запроса на удаление заказа",
+                value={"order_id": 2},
+                request_only=True,
+            ),
+            OpenApiExample(
+                name="Успешный ответ",
+                summary="Пример ответа при успешном удалении",
+                value={"status": "ok", "message": "Заказ #2 успешно удалён."},
+                response_only=True,
+            ),
+            OpenApiExample(
+                name="Ошибка: статус не 'new'",
+                summary="Пример ошибки при попытке удалить подтверждённый заказ",
+                value={"status": "error", "errors": "Удалить можно только заказ со статусом 'new'."},
+                response_only=True,
+            ),
+        ],
         operation_id="order_delete",
     )
 )
@@ -265,6 +370,55 @@ class DeleteOrderView(APIView):
             }
         },
         responses={200: OrderSerializer, 400: {"type": "object"}, 404: {"type": "object"}},
+        examples=[
+            OpenApiExample(
+                name="Размещение заказа",
+                summary="Пример запроса на размещение заказа",
+                value={"order_id": 2, "contact": 1},
+                request_only=True,
+            ),
+            OpenApiExample(
+                name="Успешное размещение",
+                summary="Пример ответа при успешном размещении",
+                value={
+                    "id": 2,
+                    "status": "confirmed",
+                    "created_at": "2024-05-01T10:00:00Z",
+                    "total_amount": 100000,
+                    "delivery_address": {
+                        "id": 1,
+                        "city": "Москва",
+                        "street": "Ленина",
+                        "house": "10",
+                        "phone": "+79991234567"
+                    },
+                    "items": [
+                        {
+                            "id": 2,
+                            "product_info": {
+                                "id": 1,
+                                "name": "iPhone 15",
+                                "model": "Apple iPhone 15 128GB",
+                                "price": 100000,
+                                "shop": {
+                                    "id": 1,
+                                    "name": "Электроника-24"
+                                }
+                            },
+                            "quantity": 1,
+                            "shop_confirmed": False
+                        }
+                    ]
+                },
+                response_only=True,
+            ),
+            OpenApiExample(
+                name="Ошибка: контакт не найден",
+                summary="Пример ошибки при неверном contact ID",
+                value={"status": "error", "errors": "Контакт не найден или недоступен."},
+                response_only=True,
+            ),
+        ],
         operation_id="order_place",
     )
 )

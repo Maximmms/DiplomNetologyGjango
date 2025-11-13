@@ -67,8 +67,12 @@ class ContactSerializer(serializers.ModelSerializer):
 class UserSerializer(serializers.ModelSerializer):
     contacts = ContactSerializer(many=True, read_only=True)
     password = serializers.CharField(write_only=True)
-    type = serializers.SerializerMethodField(
-        help_text="Тип пользователя: Магазин или Покупатель"
+    type = serializers.ChoiceField(
+        choices=User.USER_TYPE_CHOICES,
+        help_text="Тип пользователя: `shop` — магазин, `buyer` — покупатель.",
+        error_messages={
+            "invalid_choice": "Поле 'type' должно быть одним из: 'shop', 'buyer'."
+        },
     )
     phone_number = serializers.CharField(
         validators=[validate_phone_number],
@@ -77,7 +81,12 @@ class UserSerializer(serializers.ModelSerializer):
         help_text="Формат: +7 (XXX) XX-XX-XX",
     )
 
+    type_display = serializers.SerializerMethodField(
+        read_only=True, help_text="Название типа пользователя"
+    )
+
     class Meta:
+        model = User
         fields = (
             "id",
             "email",
@@ -89,15 +98,31 @@ class UserSerializer(serializers.ModelSerializer):
             "company",
             "position",
             "contacts",
-            "type"
+            "type",
+            "type_display",
         )
-        model = User
-        read_only_fields = [
-            "id",
-        ]
-        write_only_fields = [
-            "password",
-        ]
+        read_only_fields = ["id"]
+        extra_kwargs = {
+            "password": {"write_only": True},
+            "company": {"required": False},
+            "position": {"required": False},
+        }
+
+    def get_type_display(self, obj):
+        return "Магазин" if obj.type == "shop" else "Покупатель"
+
+    def validate(self, attrs):
+        # Если пользователь — магазин, проверяем обязательность company и position
+        if attrs.get("type") == "shop":
+            if not attrs.get("company"):
+                raise serializers.ValidationError({
+                    "company": "Это поле обязательно для пользователей с типом 'shop'."
+                })
+            if not attrs.get("position"):
+                raise serializers.ValidationError({
+                    "position": "Это поле обязательно для пользователей с типом 'shop'."
+                })
+        return attrs
 
     def validate_email(self, value):
         normalized = normalize_email(value)
