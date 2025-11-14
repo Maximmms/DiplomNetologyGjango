@@ -1,0 +1,22 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block title %}Загрузка YAML{% endblock %}
+
+{% block content %}
+<h1>Загрузка YAML-файла для магазина: {{ shop.name }}</h1>
+
+<form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    <table>
+        {{ form.as_table }}
+    </table>
+    <input type="submit" value="Загрузить" class="default">
+</form>
+
+<h3>Требования к файлу:</h3>
+<ul>
+    <li>Формат: <code>.yaml</code> или <code>.yml</code></li>
+    <li>Должен соответствовать ожидаемой структуре (как в <code>process_shop_data_async</code>)</li>
+</ul>
+{% endblock %}

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from decimal import Decimal
 
 from celery import shared_task
 from django.core.mail import send_mail as django_send_mail
@@ -8,8 +9,19 @@ from django.utils import timezone
 from django_celery_beat.models import IntervalSchedule, PeriodicTask
 from rest_framework_simplejwt.token_blacklist.models import OutstandingToken
 
+from backend.loggers.celery_logger import logger
+from backend.models import (
+    UNITS_OF_MEASURE,
+    Category,
+    Parameter,
+    Product,
+    ProductInfo,
+    ProductParameter,
+    Shop,
+)
 from DiplomNetologyGjango import settings
 
+UNIT_CHOICES = {choice[0] for choice in UNITS_OF_MEASURE}
 
 @shared_task
 def delete_expired_tokens():
@@ -102,3 +114,187 @@ def create_periodic_task():
     except Exception as e:
         celery_logger.error(f"❌ Ошибка при создании периодической задачи: {e}")
         return None
+
+
+@shared_task(bind=True, max_retries=3)
+def process_shop_data_async(self,data, user_id):
+    """
+    Асинхронная задача обработки данных магазина.
+
+    Загружает или обновляет информацию о магазине, категориях и товарах.
+    Поддерживает создание магазина, если он не существует.
+    Обработка выполняется асинхронно через Celery.
+
+    Args:
+        data (dict): Данные из YAML-файла (shop, categories, goods).
+        user_id (int): ID пользователя-партнёра.
+
+    Returns:
+        dict: Результат обработки: статус, сообщения, количество созданных/обновлённых записей.
+    """
+    from django.contrib.auth import get_user_model
+    User = get_user_model()
+
+    logger.info(f"Запущена обработка данных для пользователя ID={user_id}")
+
+    try:
+        user = User.objects.get(id=user_id)
+    except User.DoesNotExist:
+        logger.error(f"Пользователь с id={user_id} не найден.")
+        return {"status": False, "errors": ["Пользователь не найден"]}
+
+    shop_name = data.get("shop")
+    if not shop_name:
+        logger.warning("В файле не указано имя магазина.")
+        return {"status": False, "errors": ["Не указано имя магазина в файле"]}
+
+    logger.info(f"Ищем магазин: '{shop_name}' для пользователя {user.email}")
+
+    try:
+        shop = Shop.objects.get(name=shop_name, user=user)
+        logger.info(f"Магазин найден по имени: {shop.name}")
+    except Shop.DoesNotExist:
+        try:
+            # Попробуем найти по slug
+            shop = Shop.objects.get(slug=shop_name, user=user)
+            logger.info(f"Магазин найден по slug: {shop.slug}")
+        except Shop.DoesNotExist:
+            from django.utils.text import slugify
+            slug = slugify(shop_name)
+            shop = Shop.objects.create(
+                name=shop_name,
+                slug=slug,
+                user=user,
+                state=True,
+            )
+            logger.info(
+                f"Создан новый магазин: {shop.name} (slug={shop.slug}) для пользователя {user.email}"
+            )
+
+    errors = []
+    created_count = 0
+    updated_count = 0
+
+    # Обработка категорий
+    category_map = {}
+    for cat in data.get("categories", []):
+        cat_id = cat.get("id")
+        cat_name = cat.get("name")
+        if not cat_id or not cat_name:
+            logger.warning(f"Некорректная категория: {cat}")
+            errors.append(f"Некорректная категория: {cat}")
+            continue
+        category, created = Category.objects.get_or_create(
+            id=cat_id, defaults={"name": cat_name}
+        )
+        category.shops.add(shop)
+        category_map[cat_id] = category
+        logger.info(
+            f"{'Создана' if created else 'Найдена'} категория: {category.name} (ID={cat_id})"
+        )
+
+    # Обработка товаров
+    for item in data.get("goods", []):
+        logger.info(f"Обработка товара: {item.get('name')} (ID={item.get('id')})")
+
+        external_id = item.get("id")
+        category_id = item.get("category")
+        model = item.get("model")
+        name = item.get("name")
+        price = item.get("price")
+        price_rrc = item.get("price_rrc")
+        quantity = item.get("quantity")
+        parameters = item.get("parameters", {})
+        unit_of_measure = item.get("unit_of_measure", "pcs")  # по умолчанию
+
+        if unit_of_measure not in UNIT_CHOICES:
+            logger.warning(f"Недопустимая единица измерения '{unit_of_measure}' для товара {name}")
+            errors.append(
+                f"Недопустимая единица измерения '{unit_of_measure}' для товара {name}"
+            )
+            continue
+
+        required_fields = [
+            external_id,
+            category_id,
+            model,
+            name,
+            price,
+            price_rrc,
+            quantity,
+        ]
+        if not all(required_fields):
+            logger.warning(f"Недостающие данные в товаре: {item}")
+            errors.append(f"Недостающие данные в товаре: {item}")
+            continue
+
+        try:
+            price = Decimal(str(price))
+            price_rrc = Decimal(str(price_rrc))
+            quantity = Decimal(str(quantity))
+        except Exception as e:
+            logger.warning(f"Ошибка преобразования чисел в товаре {name}: {e}")
+            errors.append(f"Ошибка в числовых данных товара: {item}")
+            continue
+
+        if category_id not in category_map:
+            logger.warning(f"Категория {category_id} не найдена в файле")
+            errors.append(f"Категория {category_id} не найдена")
+            continue
+        category = category_map[category_id]
+
+        product, product_created = Product.objects.get_or_create(name=name, category=category)
+        if product_created:
+            logger.info(f"Создан продукт: {product.name} (ID={product.id})")
+
+        product_info, created = ProductInfo.objects.update_or_create(
+            product=product,
+            shop=shop,
+            external_id=str(external_id),
+            defaults={
+                "model": model,
+                "price": price,
+                "price_rrc": price_rrc,
+                "quantity": quantity,
+                "unit_of_measure": unit_of_measure,
+            },
+        )
+        if created:
+            logger.info(
+                f"Создан ProductInfo: {product_info} (ID={product_info.id})"
+            )
+            created_count += 1
+        else:
+            logger.info(f"Обновлён ProductInfo: {product_info} (ID={product_info.id})")
+            updated_count += 1
+
+        for param_name, param_value in parameters.items():
+            param_obj, param_created = Parameter.objects.get_or_create(
+                name=param_name
+            )
+            if param_created:
+                logger.info(f"Создан параметр: {param_name}")
+
+            pp, pp_created = ProductParameter.objects.update_or_create(
+                product_info=product_info,
+                parameter=param_obj,
+                defaults={"value": str(param_value)},
+            )
+            if pp_created:
+                logger.info(
+                    f"Создан параметр товара: {param_name}={param_value}"
+                )
+
+    if errors:
+        logger.warning(f"Ошибки при обработке файла: {errors}")
+        return {"status": False, "errors": errors}
+
+    logger.info(
+        f"Успешно обработано {created_count + updated_count} товаров для магазина {shop.name}"
+    )
+    return {
+        "status": True,
+        "message": f"Обработано {created_count + updated_count} товаров",
+        "created": created_count,
+        "updated": updated_count,
+    }

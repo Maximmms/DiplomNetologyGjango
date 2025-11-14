@@ -13,16 +13,32 @@ from backend.models import (
 
 @receiver(pre_save, sender=Contact)
 def limit_contacts(sender, instance, **kwargs):
+    """
+    Ограничивает количество контактов:
+    - Обычные пользователи могут иметь до 5 контактов.
+    - Пользователи из группы "Магазины" (тип 'shop') — только 1 контакт.
+    """
+    try:
+        shop_group = Group.objects.get(name="Магазины")
+    except Group.DoesNotExist:
+        return
+
+    is_shop_user = instance.user.type == "shop" or (
+        instance.user.pk and shop_group in instance.user.groups.all()
+    )
+
+    filter_kwargs = {"user": instance.user}
+
     if instance.pk:
-        # Обновление: исключаем текущий контакт
-        filter_kwargs = {"user": instance.user, "pk__ne": instance.pk}
-    else:
-        # Создание: не исключаем ничего
-        filter_kwargs = {"user": instance.user}
+        filter_kwargs["pk"] = instance.pk
 
     count = Contact.objects.filter(**filter_kwargs).count()
-    if count >= 5:
+
+    if is_shop_user and count >= 1:
+        raise ValidationError("У магазина может быть только один адрес.")
+    elif count >= 5:
         raise ValidationError("Вы не можете добавить больше 5 контактов.")
+
 
 
 @receiver(post_save, sender=User)

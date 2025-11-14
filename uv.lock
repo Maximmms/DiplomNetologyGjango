@@ -203,6 +203,7 @@ dependencies = [
     { name = "psycopg", extra = ["binary"] },
     { name = "pyjwt" },
     { name = "python-dotenv" },
+    { name = "pyyaml" },
     { name = "uvicorn" },
     { name = "whitenoise" },
 ]
@@ -234,6 +235,7 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.4.2" },
     { name = "pytest-django", marker = "extra == 'dev'" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
+    { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6.2" },
     { name = "uvicorn", specifier = ">=0.38.0" },
     { name = "whitenoise", specifier = ">=6.11.0" },
