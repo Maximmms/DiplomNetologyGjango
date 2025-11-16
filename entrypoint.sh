@@ -31,8 +31,6 @@ END
 )
           if echo "$CREATED" | grep -q "created"; then
             echo "✅ Superuser created"
-            echo "📌 Login (email): $DJANGO_SUPERUSER_EMAIL"
-            echo "🔑 Password: $DJANGO_SUPERUSER_PASSWORD"
         else
             echo "✅ Superuser already exists"
             echo "📌 Login: $DJANGO_SUPERUSER_USERNAME"
