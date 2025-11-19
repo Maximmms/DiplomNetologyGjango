@@ -7,7 +7,6 @@ from backend.loggers.celery_logger import logger
 
 
 def setup_periodic_tasks(sender, **kwargs):
-    # ✅ Импорты внутри функции — только когда приложения уже загружены
     from django_celery_beat.models import IntervalSchedule, PeriodicTask
 
     try:
@@ -43,5 +42,4 @@ class BackendConfig(AppConfig):
     name = "backend"
 
     def ready(self):
-        # ✅ Подключаем сигнал только при ready()
         post_migrate.connect(setup_periodic_tasks, sender=self)

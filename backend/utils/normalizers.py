@@ -34,8 +34,7 @@ def normalize_phone_number(raw_number):
 
     # Проверим длину: должно быть 11 цифр после +7
     if len(digits) != 11 or not digits.startswith("7"):
-        # Можно вернуть как есть или бросить исключение
-        return raw_number  # или вернуть None, если хотите отклонить
+        return raw_number
 
     return f"+{digits}"
 

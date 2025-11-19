@@ -1,0 +1,15 @@
+{% extends "admin/change_form.html" %}
+
+{% block object-tools %}
+  {% if change %}
+    <div class="object-tools">
+      <a href="history/" class="historylink">History</a>
+      {% if show_change_password_link %}
+        {% url 'admin:auth_user_password_change' id=original_id as change_password_url %}
+        <a href="{{ change_password_url }}" class="default" style="...">
+          🔐 Сменить пароль
+        </a>
+      {% endif %}
+    </div>
+  {% endif %}
+{% endblock %}

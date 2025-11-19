@@ -1,16 +1,19 @@
 from __future__ import annotations
 
+import logging
+
 import yaml
 from django import forms
 from django.contrib import admin, messages
+from django.contrib.auth.forms import AdminPasswordChangeForm
 from django.contrib.auth.models import Group, Permission
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.db.models.signals import post_migrate
 from django.dispatch import receiver
 from django.http import HttpResponseRedirect
-from django.shortcuts import get_object_or_404, render
-from django.urls import reverse
+from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import path, reverse
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 
@@ -44,12 +47,22 @@ class UserAdminForm(forms.ModelForm):
         max_length=20,
         help_text="Формат: +7 999 999-99-99"
     )
+    password = forms.CharField(
+        label=_("Пароль"),
+        widget=forms.PasswordInput,
+        required=False,
+        help_text=_("Оставьте пустым, чтобы оставить без изменений.")
+    )
+    password_confirm = forms.CharField(
+        label=_("Подтверждение пароля"),
+        widget=forms.PasswordInput,
+        required=False
+    )
 
     class Meta:
         model = User
         fields = [
             "email",
-            "password",
             "first_name",
             "last_name",
             "company",
@@ -74,9 +87,26 @@ class UserAdminForm(forms.ModelForm):
             return normalize_phone_number(raw_number)
         return raw_number
 
+    def clean(self):
+        cleaned_data = super().clean()
+        password = cleaned_data.get("password")
+        password_confirm = cleaned_data.get("password_confirm")
+
+        if password:
+            if not password_confirm:
+                raise ValidationError(_("Подтвердите пароль."))
+            if password != password_confirm:
+                raise ValidationError(_("Пароли не совпадают."))
+
+        return cleaned_data
+
     def save(self, commit=True):
         user = super().save(commit=False)
         user.phone_number = self.cleaned_data["phone_number"]
+        password = self.cleaned_data.get("password")
+        if password:
+            user.set_password(password)
+
         if commit:
             user.save()
         return user
@@ -106,9 +136,7 @@ class ContactForm(forms.ModelForm):
         try:
             if self.instance and self.instance.user:
                 self.fields["phone_number"].initial = self.instance.user.phone_number
-        except ObjectDoesNotExist:
-            pass
-        except AttributeError:
+        except (ObjectDoesNotExist, AttributeError):
             pass
 
     def clean_phone_number(self):
@@ -125,18 +153,16 @@ class ContactForm(forms.ModelForm):
     def save(self, commit=True):
         contact = super().save(commit=False)
         normalized_phone = self.cleaned_data.get("phone_number")  # уже нормализован
-
         user = contact.user
-
         if commit:
             contact.save()
-
         if user and user.phone_number != normalized_phone:
             user.phone_number = normalized_phone
             user.save(update_fields=["phone_number"])
-
         return contact
 
+
+# --- Инлайны ---
 
 class OrderItemInline(admin.TabularInline):
     model = OrderItem
@@ -274,9 +300,91 @@ class OrderInline(admin.StackedInline):
     fields = ("dt", "status")
     readonly_fields = ["dt"]
 
+# --- Mixin для форматирования телефона ---
+
+class PhoneFormattingMixin:
+    def formatted_phone(self, obj):
+        phone = getattr(obj, "phone_number", "")
+        if not phone or not phone.startswith("+7") or len(phone) != 12:
+            return phone or ""
+        n = phone[1:]
+        return f"{n[0]} ({n[1:4]}) {n[4:7]}-{n[7:9]}-{n[9:]}"
+
+    formatted_phone.short_description = "Телефон (форматированный)"
+
+
+# --- Админки для моделей ---
+
 
 @admin.register(User)
-class UserAdmin(admin.ModelAdmin):
+class UserAdmin(admin.ModelAdmin, PhoneFormattingMixin):
+    SUPERUSER_FIELDSETS_ADD = (
+        (None, {"fields": ("email", "password", "password_confirm")}),
+        (
+            _("Personal info"),
+            {
+                "fields": (
+                    "first_name",
+                    "last_name",
+                    "company",
+                    "position",
+                    "phone_number",
+                    "type",
+                )
+            },
+        ),
+        (
+            _("Permissions"),
+            {
+                "fields": (
+                    "is_active",
+                    "is_staff",
+                    "is_superuser",
+                    "groups",
+                    "user_permissions",
+                )
+            },
+        ),
+        (_("Important dates"), {"fields": ("last_login", "date_joined")}),
+    )
+
+    SUPERUSER_FIELDSETS_CHANGE = (
+        (None, {"fields": ("email",)}),
+        (
+            _("Personal info"),
+            {
+                "fields": (
+                    "first_name",
+                    "last_name",
+                    "company",
+                    "position",
+                    "phone_number",
+                    "type",
+                )
+            },
+        ),
+        (
+            _("Permissions"),
+            {
+                "fields": (
+                    "is_active",
+                    "is_staff",
+                    "is_superuser",
+                    "groups",
+                    "user_permissions",
+                )
+            },
+        ),
+        (_("Important dates"), {"fields": ("last_login", "date_joined")}),
+    )
+
+    SHOP_USER_FIELDSETS = (
+        (None, {"fields": ("email",)}),
+        (_("Personal info"), {
+            "fields": ("first_name", "last_name", "company", "position", "phone_number")
+        }),
+    )
+
     form = UserAdminForm
     list_display = (
         "email",
@@ -294,71 +402,16 @@ class UserAdmin(admin.ModelAdmin):
         inlines = [OrderInline]
         if not request.user.groups.filter(name="Магазины").exists():
             inlines.append(ContactInline)
-        else:
-            if obj and obj == request.user:
-                inlines.append(ContactInline)
+        elif obj and obj == request.user:
+            inlines.append(ContactInline)
         return inlines
 
     def get_fieldsets(self, request, obj=None):
         if request.user.is_superuser:
-            return True
+            return self.SUPERUSER_FIELDSETS_CHANGE if obj else self.SUPERUSER_FIELDSETS_ADD
         if request.user.groups.filter(name="Магазины").exists():
-            return (
-                (None, {"fields": ("email",)}),
-                (
-                    _("Personal info"),
-                    {
-                        "fields": (
-                            "first_name",
-                            "last_name",
-                            "company",
-                            "username",
-                            "position",
-                            "phone_number",
-                        )
-                    },
-                ),
-            )
-        else:
-            return (
-                (None, {"fields": ("email", "password")}),
-                (
-                    _("Personal info"),
-                    {
-                        "fields": (
-                            "first_name",
-                            "last_name",
-                            "company",
-                            "username",
-                            "position",
-                            "phone_number",
-                            "type",
-                        )
-                    },
-                ),
-                (
-                    _("Permissions"),
-                    {
-                        "fields": (
-                            "is_active",
-                            "is_staff",
-                            "is_superuser",
-                            "groups",
-                            "user_permissions",
-                        )
-                    },
-                ),
-                ("Important dates", {"fields": ("last_login", "date_joined")}),
-            )
-
-    def formatted_phone(self, obj):
-        phone = obj.phone_number
-        if phone and phone.startswith("+7") and len(phone) == 12:
-            number = phone[1:]  # убираем +
-            return f"{number[0]} ({number[1:4]}) {number[4:7]}-{number[7:9]}-{number[9:]}"
-        return phone or ""
-
-    formatted_phone.short_description = "Телефон (форматированный)"
+            return self.SHOP_USER_FIELDSETS
+        return self.SUPERUSER_FIELDSETS_CHANGE
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
@@ -392,6 +445,60 @@ class UserAdmin(admin.ModelAdmin):
                 return obj.pk == request.user.pk
             return False
         return super().has_delete_permission(request, obj)
+
+    # --- Добавление ссылки на смену пароля ---
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "<id>/password/",
+                self.admin_site.admin_view(self.user_change_password),
+                name="auth_user_password_change",
+            ),
+        ]
+        return custom_urls + urls
+
+    def user_change_password(self, request, id, form_url=""):
+        user = get_object_or_404(User, pk=id)
+        if not self.has_change_permission(request, user):
+            messages.error(request, "У вас нет прав на изменение пароля этого пользователя.")
+            return redirect("admin:backend_user_changelist")
+
+        if request.method == "POST":
+            form = AdminPasswordChangeForm(user, request.POST)
+            if form.is_valid():
+                form.save()
+                messages.success(request, "Пароль успешно изменён.")
+                return redirect("admin:backend_user_change", user.pk)
+        else:
+            form = AdminPasswordChangeForm(user)
+
+        fieldsets = [(None, {"fields": list(form.base_fields)})]
+        admin_form = admin.helpers.AdminForm(form, fieldsets, {})
+
+        context = {
+            "title": "Сменить пароль",
+            "adminform": admin_form,
+            "form": form,
+            "is_popup": (request.GET.get("_popup") is not None),
+            "add": False,
+            "change": True,
+            "has_view_permission": self.has_view_permission(request, user),
+            "has_change_permission": self.has_change_permission(request, user),
+            "has_delete_permission": self.has_delete_permission(request, user),
+            "original": user,
+            "save_as": False,
+            "show_save": True,
+            **self.admin_site.each_context(request),
+        }
+
+        return render(request, "admin/auth/user/change_password.html", context)
+
+    def change_view(self, request, object_id, form_url="", extra_context=None):
+        extra_context = extra_context or {}
+        extra_context["show_change_password_link"] = True
+        extra_context["original_id"] = object_id
+        return super().change_view(request, object_id, form_url, extra_context=extra_context)
 
 
 @admin.register(Shop)
@@ -453,6 +560,7 @@ class ShopAdmin(admin.ModelAdmin):
         super().save_model(request, obj, form, change)
 
     def upload_yaml_view(self, request, shop_id):
+        """Представление для загрузки YAML-файла с товарами через админку Django"""
         shop = get_object_or_404(Shop, id=shop_id)
 
         if request.method == "POST":
@@ -479,7 +587,7 @@ class ShopAdmin(admin.ModelAdmin):
                     task = process_shop_data_async.delay(data, request.user.id)
                     messages.success(
                         request,
-                        f"Файл успешно загружен. Задача запущена (ID: {task.id}). Проверьте логи Celery или состояние товаров."
+                        f"Файл успешно загружен. Задача запущена (ID: {task.id})."
                     )
                 except Exception as e:
                     messages.error(request, f"Ошибка: {str(e)}")
@@ -636,7 +744,7 @@ class OrderAdmin(admin.ModelAdmin):
         readonly_fields = list(readonly_fields)
 
         if request.user.is_superuser:
-            return True
+            return readonly_fields
         if request.user.groups.filter(name="Магазины").exists():
             if "delivery_address" not in readonly_fields:
                 readonly_fields.append("delivery_address")
@@ -753,6 +861,8 @@ class ContactAdmin(admin.ModelAdmin):
     formatted_phone.short_description = "Номер телефона"
 
 
+# --- Права для группы Магазины ---
+
 @receiver(post_migrate)
 def create_shop_group(sender, **kwargs):
     shop_group, created = Group.objects.get_or_create(name="Магазины")
@@ -770,7 +880,8 @@ def create_shop_group(sender, **kwargs):
     for model, perms in models_and_perms:
         try:
             content_type = ContentType.objects.get_for_model(model)
-        except Exception:
+        except Exception as e:
+            logging.warning(f"Не удалось получить ContentType для модели {model.__name__}: {e}")
             continue
 
         for perm in perms:

@@ -50,11 +50,4 @@ urlpatterns = [
         name="user_verify_email_change",
     ),
     path("login/", UserLoginView.as_view(), name="login"),
-    # path(
-    #     "contact/<int:id>/",
-    #     UserContactViewSet.as_view(
-    #         {"put": "update", "patch": "partial_update", "delete": "destroy"}
-    #     ),
-    #     name="user_contact_detail",
-    # ),
 ]
