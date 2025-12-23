@@ -22,6 +22,7 @@ dependencies = [
     "django-autoslug>=1.9.9",
     "drf-spectacular>=0.29.0",
     "pyyaml>=6.0.3",
+    "locust>=2.41.6",
 ]
 
 [project.optional-dependencies]
