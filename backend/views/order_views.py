@@ -17,6 +17,7 @@ from rest_framework.views import APIView
 from backend.models import Contact, Order, OrderHistory, OrderItem, Shop
 from backend.serializers import OrderHistorySerializer, OrderSerializer
 from backend.tasks import send_email_confirmation
+from backend.utils.admin_audit import log_admin_action
 from backend.utils.permissions import IsShopUserOrOwner
 
 
@@ -487,6 +488,18 @@ class PlaceOrderView(APIView):
         order.delivery_address = contact
         order.status = "confirmed"
         order.save(update_fields=["delivery_address", "status"])
+
+        log_admin_action(
+            user = request.user,
+            action = "order_status_change",
+            details = {
+                "order_id":order.id,
+                "old_status":"new",
+                "new_status":"confirmed",
+                "changed_by":request.user.id,
+            },
+            request = request,
+        )
 
         self.send_confirmation_email_async(order)
 

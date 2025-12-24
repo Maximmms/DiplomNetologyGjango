@@ -11,6 +11,7 @@ from django.contrib.auth.models import AbstractUser, PermissionsMixin
 from django.contrib.auth.validators import UnicodeUsernameValidator
 from django.core.validators import MinValueValidator
 from django.db import models
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 UNITS_OF_MEASURE = [
@@ -599,6 +600,29 @@ class OrderHistory(models.Model):
     def __str__(self):
         return f"{self.get_action_display()} — {self.order.id} — {self.created_at.strftime('%Y-%m-%d %H:%M')}"
 
+
+class AdminActionLog(models.Model):
+    ACTION_CHOICES = [
+        ("order_status_change", "Изменение статуса заказа"),
+        ("price_upload", "Загрузка прайс-листа"),
+        ("order_item_update", "Изменение позиции заказа"),
+        ("other", "Другое действие"),
+    ]
+
+    action = models.CharField("Действие", max_length=50, choices=ACTION_CHOICES)
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, verbose_name="Пользователь")
+    details = models.JSONField("Детали", help_text="Например: order_id=5, old_status=new, new_status=confirmed")
+    ip_address = models.GenericIPAddressField("IP-адрес", blank=True, null=True)
+    user_agent = models.TextField("User-Agent", blank=True)
+    timestamp = models.DateTimeField("Время", default=timezone.now, db_index=True)
+
+    class Meta:
+        verbose_name = "Аудит администратора"
+        verbose_name_plural = "Аудит действий администраторов"
+        ordering = ["-timestamp"]
+
+    def __str__(self):
+        return f"{self.get_action_display()} — {self.user} — {self.timestamp}"
 
 class EmailConfirmation(models.Model):
     user = models.ForeignKey(

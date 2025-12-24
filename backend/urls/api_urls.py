@@ -8,4 +8,5 @@ urlpatterns = [
     path("order/", include("backend.urls.order_urls", namespace="ORDER")),
     path("partners/", include("backend.urls.partner_urls", namespace="PARTNERS")),
     path("basket/", include("backend.urls.basket_urls", namespace="BASKET")),
+    path("admin/", include("backend.urls.admin_urls", namespace="ADMIN")),
 ]

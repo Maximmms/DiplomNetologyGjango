@@ -215,6 +215,17 @@ class PartnerPriceUploadView(APIView):
 
         task = process_shop_data_async.delay(data, request.user.id)
 
+        log_admin_action(
+            user = request.user,
+            action = "price_upload",
+            details = {
+                "shop_id":shop.id,
+                "filename":uploaded_file.name,
+                "rows_processed":len(data),
+            },
+            request = request,
+        )
+
         return JsonResponse({
             "status": True,
             "message": "Файл принят. Обработка началась.",
