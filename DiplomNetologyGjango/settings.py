@@ -15,7 +15,7 @@ LOGS_DIR = "/logs"  # Папка для логов (должна существ�
 
 # === РЕЖИМ РАЗРАБОТКИ И БЕЗОПАСНОСТЬ ===
 DEBUG = True
-SECRET_KEY = "django-insecure-m+4$%&0tbnpk02%7d!9_4r5i2hy)^xhxghp4sx7p)_^kmlcg*4"
+SECRET_KEY = os.getenv("GJANGO_SECRET_KEY")
 ALLOWED_HOSTS = ["*"]
 
 

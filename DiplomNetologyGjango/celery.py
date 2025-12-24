@@ -3,6 +3,8 @@ from __future__ import annotations
 import logging
 import os
 
+from celery.schedules import crontab
+
 from celery import Celery
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "DiplomNetologyGjango.settings")
@@ -19,3 +21,11 @@ if not logger.handlers:
     formatter = logging.Formatter("[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s")
     ch.setFormatter(formatter)
     logger.addHandler(ch)
+
+# Расписание задач через Celery Beat
+app.conf.beat_schedule = {
+    'generate-daily-statistics': {
+        'task': 'backend.tasks.generate_daily_statistics',
+        'schedule': crontab(hour=2, minute=0),  # Каждый день в 02:00
+    },
+}

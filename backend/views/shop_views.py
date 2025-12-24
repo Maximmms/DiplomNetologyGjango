@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+from collections import Counter
+
+from django.contrib.auth.decorators import login_required
 from django.db.models import Q
+from django.shortcuts import render
+from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import cache_page
 from drf_spectacular.utils import (
@@ -16,7 +21,7 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
-from backend.models import Category, ProductInfo, Shop
+from backend.models import Category, OrderItem, ProductInfo, Shop
 from backend.serializers import (
     CategorySerializer,
     ProductInfoSearchSerializer,
@@ -24,6 +29,61 @@ from backend.serializers import (
     ShopDetailSerializer,
     ShopListSerializer,
 )
+
+
+@login_required
+def dashboard(request):
+    try:
+        shop = request.user.shops.first()
+        if not shop:
+            return render(request, 'admin/backend/shop/dashboard.html', {'error': 'Вы не являетесь владельцем магазина.'})
+    except Shop.DoesNotExist:
+        return render(request, 'admin/backend/shop/dashboard.html', {'error': 'Магазин не найден.'})
+
+    today = timezone.now().date()
+    last_30_days = [today - timezone.timedelta(days=i) for i in range(29, -1, -1)]
+    sales_data = []
+    for day in last_30_days:
+        order_items = OrderItem.objects.filter(
+            product_info__shop=shop,
+            order__status="delivered",
+            order__dt__date=day
+        )
+        total_sales = sum(item.product_info.price * item.quantity for item in order_items)
+        sales_data.append({'day': day, 'sales': total_sales})
+
+    all_order_items = OrderItem.objects.filter(
+        product_info__shop=shop,
+        order__status="delivered",
+    )
+    total_revenue = sum(item.product_info.price * item.quantity for item in all_order_items)
+
+    shop_order_ids = all_order_items.values_list("order_id", flat=True).distinct()
+    average_check = total_revenue / shop_order_ids.count() if shop_order_ids.count() > 0 else 0
+
+    item_counter = Counter()
+    for item in all_order_items:
+        item_counter[item.product_info.product.name] += item.quantity
+    top_products = item_counter.most_common(5)
+
+    # Получаем продукты с остатками < 10 для этого магазина
+    low_stock_product_infos = ProductInfo.objects.filter(
+        shop=shop,
+        quantity__lt=10
+    ).select_related('product')
+
+    # Формируем контекст с нужными данными
+    context = {
+        "shop": shop,
+        "sales_data": sales_data,
+        "total_revenue": total_revenue,
+        "average_check": round(average_check, 2),
+        "top_products": top_products,
+        "low_stock_product_infos": low_stock_product_infos,  # передаём ProductInfo
+        "period_days": 30,
+    }
+
+    return render(request, "admin/backend/shop/dashboard.html", context)
 
 
 @extend_schema_view(

@@ -21,6 +21,8 @@ from django.http import HttpResponse
 from django.urls import include, path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
+from backend.views.shop_views import dashboard
+
 
 def health_check(request):
     return HttpResponse("OK", content_type="text/plain")
@@ -32,4 +34,6 @@ urlpatterns = [
     path("schema/", SpectacularAPIView.as_view(), name="schema"),
     path("docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="docs"),
     path("api/v1/", include("backend.urls.api_urls")),
+    path("shop/dashboard/", dashboard, name = 'dashboard'),
+    path('accounts/', include('django.contrib.auth.urls')),
 ]

@@ -9,17 +9,10 @@ from django.utils import timezone
 from django_celery_beat.models import IntervalSchedule, PeriodicTask
 from rest_framework_simplejwt.token_blacklist.models import OutstandingToken
 
-from backend.loggers.celery_logger import logger
-from backend.models import (
-    UNITS_OF_MEASURE,
-    Category,
-    Parameter,
-    Product,
-    ProductInfo,
-    ProductParameter,
-    Shop,
-)
 from DiplomNetologyGjango import settings
+from backend.loggers.celery_logger import logger
+from backend.models import (Category, DailySalesReport, Order, Parameter, Product, ProductInfo, ProductParameter, Shop,
+                            UNITS_OF_MEASURE)
 
 UNIT_CHOICES = {choice[0] for choice in UNITS_OF_MEASURE}
 
@@ -298,3 +291,29 @@ def process_shop_data_async(self,data, user_id):
         "created": created_count,
         "updated": updated_count,
     }
+
+@shared_task
+def generate_daily_statistics():
+    yesterday = timezone.now().date() - timezone.timedelta(days=1)
+    shops = Shop.objects.all()
+
+    for shop in shops:
+        completed_orders = Order.objects.filter(shop=shop, created_at__date=yesterday, status='completed')
+        total_sales = sum(item.price * item.quantity for order in completed_orders for item in order.items.all())
+        order_count = completed_orders.count()
+
+        # Сохраняем отчет
+        DailySalesReport.objects.update_or_create(
+            shop=shop,
+            date=yesterday,
+            defaults={
+                'total_sales': total_sales,
+                'order_count': order_count,
+            }
+        )
+
+        # Проверка остатков
+        low_stock = Product.objects.filter(shop=shop, stock__lt=10)
+        if low_stock.exists():
+            # Можно отправить уведомление (email, в интерфейс и т.д.)
+            print(f"Низкий остаток на складе у магазина {shop.name}: {[p.name for p in low_stock]}")

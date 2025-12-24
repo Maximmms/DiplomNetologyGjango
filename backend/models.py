@@ -644,6 +644,16 @@ class EmailConfirmation(models.Model):
         return f"{self.user.email} - {self.code}"
 
 
+class DailySalesReport(models.Model):
+    shop = models.ForeignKey(Shop, on_delete=models.CASCADE)
+    date = models.DateField()
+    total_sales = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    order_count = models.IntegerField(default=0)
+
+    class Meta:
+        unique_together = ('shop', 'date')
+
+
 class EmailChangeRequest(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="email_change_request")
     new_email = models.EmailField(unique=True)
