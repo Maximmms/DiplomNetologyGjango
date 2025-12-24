@@ -5,10 +5,7 @@ from django.core.exceptions import ValidationError
 from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
 
-from backend.models import (
-    Contact,
-    User,
-)
+from backend.models import (Contact, Order, OrderHistory, User)
 
 
 @receiver(pre_save, sender=Contact)
@@ -40,7 +37,6 @@ def limit_contacts(sender, instance, **kwargs):
         raise ValidationError("Вы не можете добавить больше 5 контактов.")
 
 
-
 @receiver(post_save, sender=User)
 def add_user_to_shop_group(sender, instance, created, **kwargs):
     """
@@ -57,3 +53,41 @@ def add_user_to_shop_group(sender, instance, created, **kwargs):
         instance.groups.add(shop_group)
     else:
         instance.groups.remove(shop_group)
+
+
+@receiver(post_save, sender=Order)
+def log_order_status_change(sender, instance, update_fields, created, **kwargs):
+    """
+    Логирует изменение статуса заказа.
+    Не срабатывает при создании (если created=True), только при обновлении.
+    """
+    if created:
+        OrderHistory.objects.create(
+            order=instance,
+            action="status_updated",
+            details={"message": "Заказ создан", "status": instance.status},
+            user=instance.user
+        )
+        return
+
+    if update_fields is None or "status" in update_fields:
+        try:
+            old_instance = Order.objects.only("status").get(id=instance.id)
+            if old_instance.status != instance.status:
+                action = "status_updated"
+                if instance.status == "canceled":
+                    action = "order_canceled"
+                elif instance.status == "assembled":
+                    action = "order_assembled"
+
+                OrderHistory.objects.create(
+                    order=instance,
+                    action=action,
+                    details={
+                        "previous_status": old_instance.status,
+                        "new_status": instance.status,
+                    },
+                    user=instance.user
+                )
+        except Order.DoesNotExist:
+            pass

@@ -12,3 +12,17 @@ class IsShopUser(permissions.BasePermission):
             request.user.is_authenticated and
             request.user.type == "shop"
         )
+
+
+class IsShopUserOrOwner(permissions.BasePermission):
+    """
+    Разрешает доступ:
+    - Пользователю, создавшему заказ (владельцу),
+    - Или поставщику (магазину), участвующему в заказе.
+    """
+    def has_object_permission(self, request, view, obj):
+        if request.user == obj.user:
+            return True
+        if hasattr(request.user, 'shop') and request.user.shop:
+            return obj.ordered_items.filter(product_info__shop=request.user.shop).exists()
+        return False

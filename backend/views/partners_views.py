@@ -25,7 +25,7 @@ from rest_framework.views import APIView
 from backend.loggers.backend_logger import logger
 from backend.models import (
     Order,
-    Shop,
+    OrderHistory, Shop,
 )
 from backend.serializers import OrderSerializer
 from backend.tasks import process_shop_data_async, send_email_confirmation
@@ -579,64 +579,59 @@ class PartnerOrdersView(APIView):
 @extend_schema_view(
     post=extend_schema(
         summary="Подтвердить сборку своей части заказа",
-        description="""
-Позволяет магазину подтвердить, что он готов собрать свои товары из заказа.
-        """.strip(),
+        description = """
+        Позволяет магазину подтвердить, что он готов собрать свои товары из заказа.
+        Если какого-то товара нет у поставщика, он может быть удалён из заказа с уведомлением клиента.
+                """.strip(),
         tags=["PARTNERS"],
-        request={
-            "application/json": {
-                "type": "object",
-                "properties": {
-                    "order_id": {"type": "integer", "example": 1, "description": "ID заказа"}
+        request = {
+            "application/json":{
+                "type":"object",
+                "properties":{
+                    "order_id":{
+                        "type":"integer",
+                        "example":1,
+                        "description":"ID заказа"
+                    },
+                    "rejected_items":{
+                        "type":"array",
+                        "items":{"type":"integer"},
+                        "description":"Список ID позиций (ordered_item_id), которые нельзя поставить",
+                        "example":[1, 3],
+                        "required":False,
+                    }
                 },
-                "required": ["order_id"]
+                "required":["order_id"]
             }
         },
         responses={200: OrderSerializer, 400: {"type": "object"}, 404: {"type": "object"}},
-        examples=[
+        examples = [
             OpenApiExample(
-                name="Подтверждение заказа",
-                summary="Пример запроса на подтверждение",
-                value={"order_id": 1},
-                request_only=True,
+                name = "Подтверждение с отказом по позициям",
+                summary = "Магазин подтверждает часть заказа, но отменяет некоторые позиции",
+                value = {"order_id":1, "rejected_items":[5]},
+                request_only = True,
             ),
             OpenApiExample(
-                name="Успех",
-                summary="Пример успешного ответа",
-                value={
-                    "id": 1,
-                    "status": "assembled",
-                    "created_at": "2024-04-05T10:00:00Z",
-                    "user": 1,
-                    "contact": 1,
-                    "ordered_items": [
+                name = "Успех",
+                summary = "Пример успешного ответа",
+                value = {
+                    "id":1,
+                    "status":"assembled",
+                    "created_at":"2024-04-05T10:00:00Z",
+                    "user":1,
+                    "contact":1,
+                    "ordered_items":[
                         {
-                            "id": 1,
-                            "order": 1,
-                            "product_info": 1,
-                            "quantity": "1.00",
-                            "shop_confirmed": True
+                            "id":1,
+                            "order":1,
+                            "product_info":1,
+                            "quantity":"1.00",
+                            "shop_confirmed":True
                         }
                     ]
                 },
-                response_only=True,
-            ),
-            OpenApiExample(
-                name="Нехватка товара",
-                summary="Пример ошибки при нехватке на складе",
-                value={
-                    "status": "error",
-                    "errors": "Недостаточно товара на складе",
-                    "details": [
-                        {
-                            "product": "iPhone 15",
-                            "model": "Apple iPhone 15",
-                            "available": 0,
-                            "ordered": 1
-                        }
-                    ]
-                },
-                response_only=True,
+                response_only = True,
             ),
         ],
         operation_id="partner_order_confirm",
@@ -648,6 +643,7 @@ class PartnerConfirmOrderView(APIView):
     @transaction.atomic
     def post(self, request):
         order_id = request.data.get("order_id")
+        rejected_item_ids = request.data.get("rejected_items", [])
 
         if not order_id:
             return Response(
@@ -677,15 +673,18 @@ class PartnerConfirmOrderView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        order_items = order.ordered_items.filter(product_info__shop=shop).select_related("product_info")
-        if not order_items.exists():
+        shop_items = order.ordered_items.filter(product_info__shop=shop).select_related("product_info")
+        if not shop_items.exists():
             return Response(
                 {"status": "error", "errors": "В этом заказе нет товаров из вашего магазина."},
                 status=status.HTTP_403_FORBIDDEN,
             )
 
+        rejected_items = shop_items.filter(id__in=rejected_item_ids)
+        confirmed_items = shop_items.exclude(id__in=rejected_item_ids)
+
         out_of_stock = []
-        for item in order_items:
+        for item in confirmed_items:
             if item.quantity > item.product_info.quantity:
                 out_of_stock.append({
                     "product": item.product_info.product.name,
@@ -696,11 +695,30 @@ class PartnerConfirmOrderView(APIView):
 
         if out_of_stock:
             return Response(
-                {"status": "error", "errors": "Недостаточно товара на складе", "details": out_of_stock},
+                {
+                    "status": "error",
+                    "errors": "Недостаточно товара на складе",
+                    "details": out_of_stock
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        for item in order_items:
+        self._log_action(
+            order=order,
+            user=request.user,
+            action="partner_action",
+            details={
+                "message":"Поставщик начал подтверждение",
+                "confirmed_count":confirmed_items.count(),
+                "rejected_count":rejected_items.count(),
+                "shop":shop.name
+            }
+        )
+
+        if rejected_items:
+            self._handle_rejected_items(rejected_items, order, request.user)
+
+        for item in confirmed_items:
             product_info = item.product_info
             product_info.quantity -= item.quantity
             product_info.save(update_fields=["quantity"])
@@ -708,17 +726,141 @@ class PartnerConfirmOrderView(APIView):
             item.shop_confirmed = True
             item.save(update_fields=["shop_confirmed"])
 
-        logger.info(f"Магазин '{shop.name}' подтвердил свои позиции в заказе #{order_id}.")
+        self._log_action(
+            order=order,
+            user=request.user,
+            action="item_confirmed",
+            details={
+                "item_id":item.id,
+                "product":item.product_info.product.name,
+                "model":item.product_info.model,
+                "quantity":float(item.quantity),
+                "shop":shop.name
+            }
+        )
 
-        if all(item.shop_confirmed for item in order.ordered_items.all()):
+        logger.info(f"Магазин '{shop.name}' подтвердил часть заказа #{order_id}, отклонено: {len(rejected_items)} позиций.")
+        old_status = order.status
+
+        remaining_items = order.ordered_items.exclude(status="rejected")
+        if not remaining_items.exists():
+            order.status = "canceled"
+            order.save(update_fields = ["status"])
+            self._notify_user_order_canceled(order)
+            self._log_action(
+                order = order,
+                user = request.user,
+                action = "order_canceled",
+                details = {
+                    "previous_status":old_status,
+                    "reason":"Все товары отменены поставщиками"
+                }
+            )
+        elif all(item.shop_confirmed for item in remaining_items):
             order.status = "assembled"
-            order.save(update_fields=["status"])
-            logger.info(f"Заказ #{order_id} переведён в статус 'assembled' — все магазины подтвердили.")
-
+            order.save(update_fields = ["status"])
+            logger.info(f"Заказ #{order_id} переведён в статус 'assembled'.")
             self.send_assembled_confirmation_email(order)
+            self._log_action(
+                order = order,
+                user = request.user,
+                action = "order_assembled",
+                details = {
+                    "previous_status":old_status
+                }
+            )
 
         serializer = OrderSerializer(order)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(serializer.data, status = status.HTTP_200_OK)
+
+    def _handle_rejected_items(self, rejected_items, order, user):
+        """Помечает позиции как отменённые поставщиком (не удаляет)."""
+        removed_items_info = []
+        for item in rejected_items:
+            removed_items_info.append({
+                "product": item.product_info.product.name,
+                "model": item.product_info.model,
+                "quantity": float(item.quantity)
+            })
+            # Удаляем позицию
+            item.status = "rejected"
+            item.shop_confirmed = False
+            item.save(update_fields=["status", "shop_confirmed"])
+
+            self._log_action(
+                order = order,
+                user = user,
+                action = "item_rejected",
+                details = {
+                    "item_id":item.id,
+                    "product":item.product_info.product.name,
+                    "model":item.product_info.model,
+                    "quantity":float(item.quantity),
+                    "shop":item.product_info.shop.name
+                }
+            )
+
+        # Отправляем email
+        self._notify_user_items_removed(order, removed_items_info)
+
+    def _log_action(self, order, user, action, details=None):
+        OrderHistory.objects.create(
+            order = order,
+            action = action,
+            details = details,
+            user = user
+        )
+
+    def _notify_user_items_removed(self, order, removed_items):
+        """Отправляет клиенту уведомление об удалении позиций из заказа."""
+        if not order.user.email:
+            logger.warning(f"Не могу отправить email: у пользователя {order.user.email} не указан email.")
+            return
+
+        subject = f"Корректировка заказа #{order.id}"
+        message = (
+            f"Здравствуйте, {order.user.first_name or 'Уважаемый клиент'}\n\n"
+            f"К сожалению, следующие позиции из вашего заказа #{order.id} временно недоступны и были удалены:\n\n"
+        )
+
+        for item in removed_items:
+            message += f"- {item['product']} ({item['model']}), кол-во: {item['quantity']}\n"
+
+        message += (
+            "\nЗаказ будет обработан с оставшимися товарами.\n"
+            "Если хотите, вы можете оформить новый заказ на недостающие позиции.\n\n"
+            "Спасибо за понимание!\n"
+            "С уважением, команда интернет-магазина"
+        )
+
+        send_email_confirmation.delay(
+            email=order.user.email,
+            subject=subject,
+            message=message,
+            from_email=None
+        )
+
+    def _notify_user_order_canceled(self, order):
+        """Отправляет клиенту уведомление об отмене заказа из-за отсутствия всех позиций."""
+        if not order.user.email:
+            logger.warning(f"Не могу отправить email: у пользователя {order.user.email} не указан email.")
+            return
+
+        subject = f"Заказ #{order.id} отменён"
+        message = (
+            f"Здравствуйте, {order.user.first_name or 'Уважаемый клиент'}\n\n"
+            f"Ваш заказ #{order.id} был отменён, потому что все товары временно недоступны.\n"
+            "Мы приносим свои извинения за доставленные неудобства.\n\n"
+            "Вы можете оформить новый заказ, когда товары появятся в наличии.\n\n"
+            "С уважением, команда интернет-магазина"
+        )
+
+        send_email_confirmation.delay(
+            email=order.user.email,
+            subject=subject,
+            message=message,
+            from_email=None
+        )
 
     def send_assembled_confirmation_email(self, order: Order):
         """

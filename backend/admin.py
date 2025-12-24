@@ -21,7 +21,7 @@ from backend.models import (
     Category,
     Contact,
     Order,
-    OrderItem,
+    OrderHistory, OrderItem,
     Parameter,
     Product,
     ProductInfo,
@@ -188,6 +188,48 @@ class OrderItemInline(admin.TabularInline):
                 return obj.product_info.shop in request.user.shops.all()
             return True
         return super().has_change_permission(request, obj)
+
+
+class OrderHistotyInlain(admin.TabularInline):
+    model = OrderHistory
+    extra = 0
+    verbose_name = ("История заказа")
+    verbose_name_plural = ("История заказов")
+
+    fields = ("action_display", "get_details", "user", "created_at")
+    readonly_fields = ("action_display", "get_details", "user", "created_at")
+
+    def action_display(self, obj):
+        return obj.get_action_display()
+
+    action_display.short_description = ("Действие")
+
+    def get_details(self, obj):
+        details = obj.details
+        if not details:
+            return "-"
+        if "previous_status" in details and "new_status" in details:
+            return f"{details['previous_status']} → {details['new_status']}"
+        if "message" in details:
+            return details["message"]
+        if "product" in details:
+            return f"{details['product']} (x{details['quantity']})"
+        return str(details)
+
+    get_details.short_description = ("Детали")
+
+    def has_add_permission(self, request, obj = None):
+        return False
+
+    def has_change_permission(self, request, obj = None):
+        return False
+
+    def has_delete_permission(self, request, obj = None):
+        return False
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request).select_related("user")
+        return qs.order_by("-created_at")
 
 
 class ProductParameterInline(admin.StackedInline):
@@ -728,7 +770,7 @@ class OrderAdmin(admin.ModelAdmin):
     list_display = ("user", "dt", "status")
     search_fields = ("user__email", "status")
     list_filter = ("dt", "status")
-    inlines = [OrderItemInline]
+    inlines = [OrderItemInline, OrderHistotyInlain]
     readonly_fields = ["dt", "user"]
 
     def get_fields(self, request, obj=None):

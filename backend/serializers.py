@@ -5,16 +5,8 @@ from django.contrib.auth.password_validation import validate_password
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
-from backend.models import (
-    Category,
-    Contact,
-    Order,
-    OrderItem,
-    Product,
-    ProductInfo,
-    ProductParameter,
-    Shop,
-)
+from backend.models import (Category, Contact, Order, OrderHistory, OrderItem, Product, ProductInfo, ProductParameter,
+                            Shop)
 from backend.utils.normalizers import (
     is_valid_email,
     normalize_email,
@@ -363,10 +355,14 @@ class ProductParameterSerializer(serializers.ModelSerializer):
 
 
 class OrderItemSerializer(serializers.ModelSerializer):
+    product_info = ProductInfoSerializer(read_only = True)
+    status_display = serializers.CharField(source = "get_status_display", read_only = True)
+
     class Meta:
         model = OrderItem
         fields = [
-            "id", "product_info", "quantity", "order"
+            "id", "product_info", "quantity", "order", "quantity",
+            "shop_confirmed", "status", "status_display", "created_at"
         ]
         read_only_fields = ["id",]
         extra_kwargs = {"order": {"write_only": True}}
@@ -379,18 +375,32 @@ class OrderItemCreateSerializer(serializers.ModelSerializer):
 class OrderSerializer(serializers.ModelSerializer):
     order_items = OrderItemSerializer(many=True, read_only=True)
     total_price = serializers.SerializerMethodField()
+    user = UserSerializer(read_only=True)
     delivery_address = ContactSerializer(read_only=True)
 
     class Meta:
         model = Order
-        fields = [
-            "id", "order_items", "status", "dt", "total_price", "delivery_address"
-        ]
-        read_only_fields = ["id",]
+        fields = (
+            "id", "user", "order_items", "status", "dt", "total_price", "delivery_address",
+        )
+        read_only_fields = ["id", "dt"]
 
     @extend_schema_field(serializers.DecimalField(max_digits=10, decimal_places=2))
     def get_total_price(self, obj):
-        return sum(item.quantity * item.product_info.price for item in obj.items.all())
+        return sum(item.quantity * item.product_info.price for item in obj.order_items.all())
+
+
+class OrderHistorySerializer(serializers.ModelSerializer):
+    action_display = serializers.CharField(source="get_action_display", read_only=True)
+    user_email = serializers.SerializerMethodField()
+
+    class Meta:
+        model = OrderHistory
+        fields = ["id", "action", "action_display", "details", "user_email", "created_at"]
+
+    def get_user_email(self, obj):
+        return obj.user.email if obj.user else None
+
 
 class BasketItemSerializer(serializers.ModelSerializer):
     product_info = ProductInfoSerializer(read_only=True)

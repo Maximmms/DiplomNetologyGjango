@@ -42,4 +42,5 @@ class BackendConfig(AppConfig):
     name = "backend"
 
     def ready(self):
+        import backend.signals  # noqa: F401
         post_migrate.connect(setup_periodic_tasks, sender=self)

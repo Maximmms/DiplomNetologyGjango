@@ -506,6 +506,12 @@ class Order(models.Model):
 
 
 class OrderItem(models.Model):
+    ORDER_ITEM_STATUS_CHOICES = [
+        ("pending", "Ожидает подтверждения"),
+        ("confirmed", "Подтверждено"),
+        ("rejected", "Отменено поставщиком"),
+    ]
+
     order = models.ForeignKey(
         Order, on_delete=models.CASCADE, related_name="items", verbose_name="Заказ"
     )
@@ -524,9 +530,16 @@ class OrderItem(models.Model):
         verbose_name="Подтвержден поставщиком",
         help_text="Указывает, что поставщик подтвердил наличие и готовность собрать товар"
     )
+    status = models.CharField(
+        max_length=20,
+        choices=ORDER_ITEM_STATUS_CHOICES,
+        default="pending",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"{self.product_info.product} - {self.quantity}"
+        return f"{self.product_info.product} - {self.quantity} - {self.get_status_display()}"
 
     class Meta:
         verbose_name = "Пункт заказа"
@@ -538,6 +551,53 @@ class OrderItem(models.Model):
                 name="unique_order_item"
             )
         ]
+
+
+class OrderHistory(models.Model):
+    ACTION_CHOICES = [
+        ("status_updated", "Статус изменён"),
+        ("item_rejected", "Товар отменён поставщиком"),
+        ("item_confirmed", "Товар подтверждён"),
+        ("order_assembled", "Заказ собран"),
+        ("order_canceled", "Заказ отменён"),
+        ("partner_action", "Действие партнёра"),
+    ]
+
+    order = models.ForeignKey(
+        "Order",
+        on_delete=models.CASCADE,
+        related_name="order_history",
+        verbose_name="Заказ"
+    )
+    action = models.CharField(
+        max_length=20,
+        choices=ACTION_CHOICES,
+        verbose_name="Действие"
+    )
+    details = models.JSONField(
+        blank=True,
+        null=True,
+        verbose_name="Детали (JSON)"
+    )
+    user = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        verbose_name="Пользователь"
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="Дата и время"
+    )
+
+    class Meta:
+        verbose_name = "История заказа"
+        verbose_name_plural = "История заказов"
+        ordering = ["-created_at",]
+
+    def __str__(self):
+        return f"{self.get_action_display()} — {self.order.id} — {self.created_at.strftime('%Y-%m-%d %H:%M')}"
 
 
 class EmailConfirmation(models.Model):

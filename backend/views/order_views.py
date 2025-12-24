@@ -9,13 +9,15 @@ from drf_spectacular.utils import (
     extend_schema_view,
 )
 from rest_framework import status
+from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from backend.models import Contact, Order, OrderItem, Shop
-from backend.serializers import OrderSerializer
+from backend.models import Contact, Order, OrderHistory, OrderItem, Shop
+from backend.serializers import OrderHistorySerializer, OrderSerializer
 from backend.tasks import send_email_confirmation
+from backend.utils.permissions import IsShopUserOrOwner
 
 
 @extend_schema_view(
@@ -593,3 +595,66 @@ class PlaceOrderView(APIView):
         lines.append("С уважением, команда интернет-магазина.")
 
         return "\n".join(lines)
+
+
+@extend_schema(
+    summary="Просмотр истории изменений заказа",
+    description="""
+    Позволяет клиенту или поставщику просматривать историю изменений заказа.
+    - Клиент видит историю своего заказа.
+    - Поставщик видит только действия, связанные с его товарами.
+    """,
+    tags=["ORDER"],
+    responses={200: OrderHistorySerializer(many=True)},
+    examples=[
+        OpenApiExample(
+            name="История заказа",
+            value=[
+                {
+                    "id": 1,
+                    "action": "item_rejected",
+                    "action_display": "Товар отменён поставщиком",
+                    "details": {
+                        "item_id": 5,
+                        "product": "iPhone 15",
+                        "model": "apple/iphone/15",
+                        "quantity": 1.0,
+                        "shop": "Связной"
+                    },
+                    "user_email": "partner@example.com",
+                    "created_at": "2024-04-05T10:15:00Z"
+                }
+            ],
+            response_only=True,
+        )
+    ]
+)
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsShopUserOrOwner])
+def order_history_view(request, order_id):
+    try:
+        order = Order.objects.get(id=order_id)
+    except Order.DoesNotExist:
+        return Response(
+            {"error": "Заказ не найден."},
+            status=status.HTTP_404_NOT_FOUND
+        )
+
+    # Проверка доступа: либо владелец, либо поставщик из заказа
+    if hasattr(request.user, 'shop') and request.user.shop:
+        shop = request.user.shop
+        has_access = order.ordered_items.filter(product_info__shop=shop).exists()
+        if not has_access:
+            return Response(
+                {"error": "У вас нет доступа к этой истории."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+    elif order.user != request.user:
+        return Response(
+            {"error": "У вас нет доступа к этой истории."},
+            status=status.HTTP_403_FORBIDDEN
+        )
+
+    history = OrderHistory.objects.filter(order=order).order_by("created_at")
+    serializer = OrderHistorySerializer(history, many=True)
+    return Response(serializer.data, status=status.HTTP_200_OK)
