@@ -1,4 +1,5 @@
-from django.contrib.auth.models import User
+from __future__ import annotations
+
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter, extend_schema
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
@@ -66,7 +67,7 @@ from backend.models import AdminActionLog
         )
     ]
 )
-@api_view(['GET'])
+@api_view(["GET"])
 @permission_classes([IsAdminUser])
 def admin_audit_log_view(request):
     logs = AdminActionLog.objects.all()

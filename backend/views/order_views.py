@@ -642,7 +642,7 @@ class PlaceOrderView(APIView):
         )
     ]
 )
-@api_view(['GET'])
+@api_view(["GET"])
 @permission_classes([IsAuthenticated, IsShopUserOrOwner])
 def order_history_view(request, order_id):
     try:
@@ -654,7 +654,7 @@ def order_history_view(request, order_id):
         )
 
     # Проверка доступа: либо владелец, либо поставщик из заказа
-    if hasattr(request.user, 'shop') and request.user.shop:
+    if hasattr(request.user, "shop") and request.user.shop:
         shop = request.user.shop
         has_access = order.ordered_items.filter(product_info__shop=shop).exists()
         if not has_access:

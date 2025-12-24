@@ -651,7 +651,7 @@ class DailySalesReport(models.Model):
     order_count = models.IntegerField(default=0)
 
     class Meta:
-        unique_together = ('shop', 'date')
+        unique_together = ("shop", "date")
 
 
 class EmailChangeRequest(models.Model):

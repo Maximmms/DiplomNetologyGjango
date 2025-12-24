@@ -5,7 +5,7 @@ from django.core.exceptions import ValidationError
 from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
 
-from backend.models import (Contact, Order, OrderHistory, User)
+from backend.models import Contact, Order, OrderHistory, User
 
 
 @receiver(pre_save, sender=Contact)

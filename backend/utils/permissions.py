@@ -23,6 +23,6 @@ class IsShopUserOrOwner(permissions.BasePermission):
     def has_object_permission(self, request, view, obj):
         if request.user == obj.user:
             return True
-        if hasattr(request.user, 'shop') and request.user.shop:
+        if hasattr(request.user, "shop") and request.user.shop:
             return obj.ordered_items.filter(product_info__shop=request.user.shop).exists()
         return False

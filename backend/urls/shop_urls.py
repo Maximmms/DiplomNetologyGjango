@@ -7,7 +7,7 @@ from backend.views.shop_views import (
     ShopDetailView,
     ShopListView,
     ShopProductSearchView,
-    ShopProductsView
+    ShopProductsView,
 )
 
 app_name = "SHOP"

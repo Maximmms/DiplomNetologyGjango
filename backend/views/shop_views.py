@@ -36,9 +36,9 @@ def dashboard(request):
     try:
         shop = request.user.shops.first()
         if not shop:
-            return render(request, 'admin/backend/shop/dashboard.html', {'error': 'Вы не являетесь владельцем магазина.'})
+            return render(request, "admin/backend/shop/dashboard.html", {"error": "Вы не являетесь владельцем магазина."})
     except Shop.DoesNotExist:
-        return render(request, 'admin/backend/shop/dashboard.html', {'error': 'Магазин не найден.'})
+        return render(request, "admin/backend/shop/dashboard.html", {"error": "Магазин не найден."})
 
     today = timezone.now().date()
     last_30_days = [today - timezone.timedelta(days=i) for i in range(29, -1, -1)]
@@ -50,7 +50,7 @@ def dashboard(request):
             order__dt__date=day
         )
         total_sales = sum(item.product_info.price * item.quantity for item in order_items)
-        sales_data.append({'day': day, 'sales': total_sales})
+        sales_data.append({"day": day, "sales": total_sales})
 
     all_order_items = OrderItem.objects.filter(
         product_info__shop=shop,
@@ -70,7 +70,7 @@ def dashboard(request):
     low_stock_product_infos = ProductInfo.objects.filter(
         shop=shop,
         quantity__lt=10
-    ).select_related('product')
+    ).select_related("product")
 
     # Формируем контекст с нужными данными
     context = {

@@ -5,8 +5,17 @@ from django.contrib.auth.password_validation import validate_password
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
-from backend.models import (Category, Contact, Order, OrderHistory, OrderItem, Product, ProductInfo, ProductParameter,
-                            Shop)
+from backend.models import (
+    Category,
+    Contact,
+    Order,
+    OrderHistory,
+    OrderItem,
+    Product,
+    ProductInfo,
+    ProductParameter,
+    Shop,
+)
 from backend.utils.normalizers import (
     is_valid_email,
     normalize_email,
