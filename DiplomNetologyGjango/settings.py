@@ -10,7 +10,7 @@ load_dotenv()
 
 # === ОСНОВНЫЕ ПУТИ И КОНФИГУРАЦИЯ ПРОЕКТА ===
 BASE_DIR = Path(__file__).resolve().parent.parent
-LOGS_DIR = "/logs"  # Папка для логов (должна существовать при запуске)
+LOGS_DIR = os.path.join(BASE_DIR, "logs")  # Папка для логов (должна существовать при запуске)
 
 
 # === РЕЖИМ РАЗРАБОТКИ И БЕЗОПАСНОСТЬ ===
@@ -173,26 +173,34 @@ LOGGING = {
         },
         "file": {
             "level": "INFO",
-            "class": "logging.FileHandler",
+            "class": "logging.handlers.RotatingFileHandler",
             "filename": os.path.join(LOGS_DIR, "django.log"),
+            "maxBytes": 104857600,  # 100MB
+            "backupCount": 5,
             "formatter": "standard",
         },
         "jwt_tokens_file": {
             "level": "INFO",
-            "class": "logging.FileHandler",
+            "class": "logging.handlers.RotatingFileHandler",
             "filename": os.path.join(LOGS_DIR, "jwt_tokens.log"),
+            "maxBytes": 104857600,  # 100MB
+            "backupCount": 5,
             "formatter": "standard",
         },
         "send_email_file": {
             "level": "INFO",
-            "class": "logging.FileHandler",
+            "class": "logging.handlers.RotatingFileHandler",
             "filename": os.path.join(LOGS_DIR, "send_email.log"),
+            "maxBytes": 104857600,  # 100MB
+            "backupCount": 5,
             "formatter": "standard",
         },
         "celery_file": {
             "level": "INFO",
-            "class": "logging.FileHandler",
+            "class": "logging.handlers.RotatingFileHandler",
             "filename": os.path.join(LOGS_DIR, "celery.log"),
+            "maxBytes": 104857600,  # 100MB
+            "backupCount": 5,
             "formatter": "standard",
         },
     },
@@ -226,6 +234,7 @@ CELERY_BROKER_URL = "redis://redis:6379/0"
 CELERY_RESULT_BACKEND = "redis://redis:6379/0"
 CELERY_TIMEZONE = "Europe/Moscow"
 CELERY_BEAT_SCHEDULE = {}
+
 
 
 # === DRF SPECTACULAR (Swagger/OpenAPI) ===

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any, Dict, List, Optional, Union
 
 import yaml
 from django import forms
@@ -11,7 +12,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.db.models.signals import post_migrate
 from django.dispatch import receiver
-from django.http import HttpResponseRedirect
+from django.http import HttpRequest, HttpResponseRedirect
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import path, reverse
 from django.utils.html import format_html
@@ -79,7 +80,7 @@ class UserAdminForm(forms.ModelForm):
             "date_joined",
         ]
 
-    def clean_phone_number(self):
+    def clean_phone_number(self) -> Optional[str]:
         raw_number = self.cleaned_data.get("phone_number")
         if raw_number:
             cleaned_digits = "".join(filter(str.isdigit, raw_number))
@@ -88,7 +89,7 @@ class UserAdminForm(forms.ModelForm):
             return normalize_phone_number(raw_number)
         return raw_number
 
-    def clean(self):
+    def clean(self) -> Dict[str, Any]:
         cleaned_data = super().clean()
         password = cleaned_data.get("password")
         password_confirm = cleaned_data.get("password_confirm")
@@ -101,7 +102,7 @@ class UserAdminForm(forms.ModelForm):
 
         return cleaned_data
 
-    def save(self, commit=True):
+    def save(self, commit: bool = True) -> User:
         user = super().save(commit=False)
         user.phone_number = self.cleaned_data["phone_number"]
         password = self.cleaned_data.get("password")
@@ -140,7 +141,7 @@ class ContactForm(forms.ModelForm):
         except (ObjectDoesNotExist, AttributeError):
             pass
 
-    def clean_phone_number(self):
+    def clean_phone_number(self) -> Optional[str]:
         raw_number = self.cleaned_data.get("phone_number")
         if raw_number:
             # Валидация длины
@@ -151,7 +152,7 @@ class ContactForm(forms.ModelForm):
             return normalize_phone_number(raw_number)
         return raw_number
 
-    def save(self, commit=True):
+    def save(self, commit: bool = True) -> Contact:
         contact = super().save(commit=False)
         normalized_phone = self.cleaned_data.get("phone_number")  # уже нормализован
         user = contact.user
@@ -172,7 +173,7 @@ class OrderItemInline(admin.TabularInline):
     verbose_name_plural = _("Позиции заказа")
     fields = ("product_info", "quantity")
 
-    def get_queryset(self, request):
+    def get_queryset(self, request: HttpRequest) -> QuerySet[OrderItem]:  # noqa: F821
         qs = super().get_queryset(request).select_related("product_info__product", "product_info__shop")
         if request.user.is_superuser:
             return qs
@@ -183,7 +184,7 @@ class OrderItemInline(admin.TabularInline):
             return qs.filter(product_info__shop__in=user_shops)
         return qs
 
-    def has_change_permission(self, request, obj=None):
+    def has_change_permission(self, request: HttpRequest, obj: Optional[OrderItem] = None) -> bool:
         if request.user.groups.filter(name="Магазины").exists():
             if obj is not None and hasattr(obj, "product_info"):
                 return obj.product_info.shop in request.user.shops.all()
@@ -200,12 +201,12 @@ class OrderHistotyInlain(admin.TabularInline):
     fields = ("action_display", "get_details", "user", "created_at")
     readonly_fields = ("action_display", "get_details", "user", "created_at")
 
-    def action_display(self, obj):
+    def action_display(self, obj: OrderHistory) -> str:
         return obj.get_action_display()
 
     action_display.short_description = ("Действие")
 
-    def get_details(self, obj):
+    def get_details(self, obj: OrderHistory) -> str:
         details = obj.details
         if not details:
             return "-"
@@ -228,7 +229,7 @@ class OrderHistotyInlain(admin.TabularInline):
     def has_delete_permission(self, request, obj = None):
         return False
 
-    def get_queryset(self, request):
+    def get_queryset(self, request: HttpRequest) -> QuerySet[OrderHistory]:
         qs = super().get_queryset(request).select_related("user")
         return qs.order_by("-created_at")
 
@@ -263,7 +264,7 @@ class ProductInfoInline(admin.StackedInline):
     fields = ("shop", "price", "price_rrc", "quantity")
     inlines = [ProductParameterInline]
 
-    def get_queryset(self, request):
+    def get_queryset(self, request: HttpRequest) -> QuerySet[ProductInfo]:
         qs = super().get_queryset(request).select_related("shop")
         if request.user.is_superuser:
             return qs
@@ -274,25 +275,25 @@ class ProductInfoInline(admin.StackedInline):
             return qs.filter(shop__in=user_shops)
         return qs
 
-    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+    def formfield_for_foreignkey(self, db_field: forms.Field, request: HttpRequest, **kwargs: Any) -> forms.Field:
         if db_field.name == "shop" and request.user.groups.filter(name="Магазины").exists():
             kwargs["queryset"] = request.user.shops.all()
             kwargs["initial"] = request.user.shops.first()
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
-    def get_readonly_fields(self, request, obj=None):
+    def get_readonly_fields(self, request: HttpRequest, obj: Optional[ProductInfo] = None) -> List[str]:
         if obj:
             return ["shop"]
         return []
 
-    def has_add_permission(self, request, obj):
+    def has_add_permission(self, request: HttpRequest, obj: Optional[ProductInfo] = None) -> bool:
         if request.user.is_superuser:
             return True
         if request.user.groups.filter(name="Магазины").exists():
             return True
         return super().has_add_permission(request, obj)
 
-    def has_change_permission(self, request, obj=None):
+    def has_change_permission(self, request: HttpRequest, obj: Optional[ProductInfo] = None) -> bool:
         if request.user.is_superuser:
             return True
         if request.user.groups.filter(name="Магазины").exists():
@@ -318,7 +319,7 @@ class ContactInline(admin.StackedInline):
     verbose_name_plural = _("Контакты")
     fields = ("zipcode", "city", "street", "building", "appartment")
 
-    def get_queryset(self, request):
+    def get_queryset(self, request: HttpRequest) -> QuerySet[Contact]:
         qs = super().get_queryset(request)
         if request.user.is_superuser:
             return qs
@@ -326,7 +327,7 @@ class ContactInline(admin.StackedInline):
             return qs.filter(user=request.user)
         return qs
 
-    def has_add_permission(self, request, obj):
+    def has_add_permission(self, request: HttpRequest, obj: Optional[Contact] = None) -> bool:
         if request.user.is_superuser:
             return True
         if request.user.groups.filter(name="Магазины").exists():
@@ -664,7 +665,7 @@ class ProductAdmin(admin.ModelAdmin):
     search_fields = ("name",)
     inlines = [ProductInfoInline]
 
-    def get_queryset(self, request):
+    def get_queryset(self, request: HttpRequest) -> QuerySet[Product]:
         qs = (
             super()
             .get_queryset(request)
@@ -679,7 +680,7 @@ class ProductAdmin(admin.ModelAdmin):
             return qs.filter(product_infos__shop__in=user_shops).distinct()
         return qs
 
-    def has_change_permission(self, request, obj=None):
+    def has_change_permission(self, request: HttpRequest, obj: Optional[Product] = None) -> bool:
         if request.user.is_superuser:
             return True
         if request.user.groups.filter(name="Магазины").exists():
@@ -689,14 +690,14 @@ class ProductAdmin(admin.ModelAdmin):
             return obj.product_infos.filter(shop__in=user_shops).exists()
         return super().has_change_permission(request, obj)
 
-    def has_add_permission(self, request):
+    def has_add_permission(self, request: HttpRequest) -> bool:
         if request.user.is_superuser:
             return True
         if request.user.groups.filter(name="Магазины").exists():
             return True
         return super().has_add_permission(request)
 
-    def has_delete_permission(self, request, obj=None):
+    def has_delete_permission(self, request: HttpRequest, obj: Optional[Product] = None) -> bool:
         if request.user.groups.filter(name="Магазины").exists():
             if obj is not None:
                 user_shops = request.user.shops.all()
@@ -704,7 +705,7 @@ class ProductAdmin(admin.ModelAdmin):
             return False
         return super().has_delete_permission(request, obj)
 
-    def save_formset(self, request, form, formset, change):
+    def save_formset(self, request: HttpRequest, form: forms.ModelForm, formset: forms.BaseModelFormSet, change: bool) -> None:
         instances = formset.save(commit=False)
         for instance in instances:
             if isinstance(instance, ProductInfo):
@@ -742,7 +743,7 @@ class ProductInfoAdmin(admin.ModelAdmin):
     )
     search_fields = ("product__name", "shop__name", "model", "external_id")
 
-    def get_queryset(self, request):
+    def get_queryset(self, request: HttpRequest) -> QuerySet[ProductInfo]:
         return super().get_queryset(request).prefetch_related("parameters")
 
 
@@ -751,7 +752,7 @@ class ParameterAdmin(admin.ModelAdmin):
     list_display = ("name",)
     search_fields = ("name",)
 
-    def get_queryset(self, request):
+    def get_queryset(self, request: HttpRequest) -> QuerySet[Parameter]:
         return super().get_queryset(request).prefetch_related(
             "productparameter_set"
         )
@@ -762,7 +763,7 @@ class ProductParameterAdmin(admin.ModelAdmin):
     list_display = ("product_info", "parameter", "value")
     search_fields = ("parameter__name",)
 
-    def get_queryset(self, request):
+    def get_queryset(self, request: HttpRequest) -> QuerySet[ProductParameter]:
         return super().get_queryset(request).select_related("product_info", "parameter")
 
 
@@ -794,7 +795,7 @@ class OrderAdmin(admin.ModelAdmin):
 
         return readonly_fields
 
-    def get_queryset(self, request):
+    def get_queryset(self, request: HttpRequest) -> QuerySet[Order]:
         qs = super().get_queryset(request).select_related("user")
         if request.user.is_superuser:
             return qs
@@ -805,7 +806,7 @@ class OrderAdmin(admin.ModelAdmin):
             return qs.filter(items__product_info__shop__in=user_shops).distinct()
         return qs
 
-    def has_change_permission(self, request, obj=None):
+    def has_change_permission(self, request: HttpRequest, obj: Optional[Order] = None) -> bool:
         if request.user.is_superuser:
             return True
         if request.user.groups.filter(name="Магазины").exists():
@@ -826,7 +827,7 @@ class OrderItemAdmin(admin.ModelAdmin):
     def shop_name(self, obj):
         return obj.product_info.shop.name
 
-    def get_queryset(self, request):
+    def get_queryset(self, request: HttpRequest) -> QuerySet[OrderItem]:
         return super().get_queryset(request).prefetch_related(
             "product_info__product",
             "product_info__shop",
@@ -866,7 +867,7 @@ class ContactAdmin(admin.ModelAdmin):
                 return f"+{n[0]} ({n[1:4]}) {n[4:7]}-{n[7:9]}-{n[9:]}"
         return ""
 
-    def get_queryset(self, request):
+    def get_queryset(self, request: HttpRequest) -> QuerySet[Contact]:
         qs = super().get_queryset(request)
         if request.user.is_superuser:
             return qs

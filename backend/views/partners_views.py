@@ -649,6 +649,10 @@ class PartnerOrdersView(APIView):
     )
 )
 class PartnerConfirmOrderView(APIView):
+    """ Позволяет магазину подтвердить, что он готов собрать свои товары из заказа.
+        Если какого-то товара нет у поставщика, он может быть удалён из заказа с уведомлением клиента.
+    """
+    
     permission_classes = [IsAuthenticated, IsShopUser]
 
     @transaction.atomic

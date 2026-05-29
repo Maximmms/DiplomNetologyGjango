@@ -222,6 +222,11 @@ class User(AbstractUser, PermissionsMixin):
         verbose_name = "Пользователь"
         verbose_name_plural = "Список пользователей"
         ordering = ("email",)
+        indexes = [
+            models.Index(fields=["type"]),
+            models.Index(fields=["is_active"]),
+            models.Index(fields=["email"])
+        ]
 
 
 class Contact(models.Model):
@@ -412,13 +417,15 @@ class ProductInfo(models.Model):
         verbose_name = "Информация о товаре в магазине"
         verbose_name_plural = "Информация о товарах в магазинах"
         indexes = [
-        models.Index(fields=["product", "shop"])
+            models.Index(fields=["product", "shop"]),
+            models.Index(fields=["price"]),
+            models.Index(fields=["quantity"])
         ]
         constraints = [
-        models.UniqueConstraint(
-        fields=["product", "shop", "external_id"],
-        name="unique_product_info"
-        ),
+            models.UniqueConstraint(
+                fields=["product", "shop", "external_id"],
+                name="unique_product_info"
+            ),
         ]
 
 
@@ -499,9 +506,9 @@ class Order(models.Model):
         verbose_name = "Заказ"
         verbose_name_plural = "Заказы"
         indexes = [
-        models.Index(
-        fields=["user", "status"]
-        )
+            models.Index(fields=["user", "status"]),
+            models.Index(fields=["dt"]),
+            models.Index(fields=["user", "dt"])
         ]
         ordering = ("-dt",)
 
@@ -545,7 +552,10 @@ class OrderItem(models.Model):
     class Meta:
         verbose_name = "Пункт заказа"
         verbose_name_plural = "Пункты заказа"
-        indexes = [models.Index(fields=["order", "product_info"])]
+        indexes = [
+            models.Index(fields=["order", "product_info"]),
+            models.Index(fields=["status"])
+        ]
         constraints = [
             models.UniqueConstraint(
                 fields=["order", "product_info"],

@@ -563,10 +563,12 @@ class UserContactViewSet(viewsets.GenericViewSet,
     def me(self, request, *args, **kwargs):
         """
         Возвращает профиль пользователя и все его адреса доставки.
+        Использует prefetch_related для оптимизации запросов к контактам.
         """
         user = request.user
 
-        contacts = self.get_queryset()
+        # Используем prefetch_related для оптимизации запросов к контактам
+        contacts = self.get_queryset().prefetch_related('user')
         contacts_data = ContactSerializer(contacts, many=True).data
 
         user_contact_info = {

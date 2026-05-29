@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from django.contrib import admin
 from django.http import HttpResponse
-from django.urls import include, path
+from django.urls import path, include
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
 from backend.views.shop_views import dashboard

@@ -9,19 +9,11 @@ from django.utils import timezone
 from django_celery_beat.models import CrontabSchedule, IntervalSchedule, PeriodicTask
 from rest_framework_simplejwt.token_blacklist.models import OutstandingToken
 
+from DiplomNetologyGjango import settings
 from backend.loggers.celery_logger import logger as celery_logger
 from backend.loggers.jwt_token_logger import logger as jwt_logger
 from backend.loggers.mail_send_logger import logger as email_logger
-from backend.models import (
-    UNITS_OF_MEASURE,
-    Category,
-    Parameter,
-    Product,
-    ProductInfo,
-    ProductParameter,
-    Shop,
-)
-from DiplomNetologyGjango import settings
+from backend.models import (Category, Parameter, Product, ProductInfo, ProductParameter, Shop, UNITS_OF_MEASURE)
 
 UNIT_CHOICES = {choice[0] for choice in UNITS_OF_MEASURE}
 
